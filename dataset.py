@@ -8,7 +8,7 @@ import numpy as np
 
 class UNSW_NB15(Dataset):
     def __init__(self, data_csv, dtype_xlsx, num_clusters):
-        self.feats = pd.read_excel(dtype_xlsx, header=0, engine='openpyxl')
+        self.feats = pd.read_excel(dtype_xlsx, header=0, engine='openpyxl').drop(47, axis=0)
         raw_dtypes = self.feats['Type '].str.lower()
         category_map = {'nominal': 'str',
                        'integer': 'int',
@@ -17,13 +17,18 @@ class UNSW_NB15(Dataset):
         dtypes = raw_dtypes.replace(category_map)
         self.dtypes = {i: x for i, x in enumerate(dtypes)}
 
-        self.frame = pd.read_csv(data_csv, header=None)
+        self.frame = pd.read_csv(data_csv, header=None).drop(47, axis=1)
         self.num_clusters = num_clusters
 
         self.occs = []
         self.categorical_dicts = {}
         for idx, t in enumerate(self.dtypes):
-            if (self.dtypes[t] == 'str' or self.feats['Name'][idx] == 'sport' or self.feats['Name'][idx] == 'dsport'):
+            self.frame.iloc[:, idx] = self.frame.iloc[:, idx].astype(self.dtypes[idx], errors='ignore') # enforcing dtypes and dropping bad rows
+            good_indices = self.frame.iloc[:, idx].apply(lambda x: isinstance(x, eval(self.dtypes[idx])))
+            if (sum(good_indices) < len(self.frame)):
+                self.frame = self.frame[good_indices]
+            
+            if (self.dtypes[t] == 'str'):
                 unique = self.frame.iloc[:, idx].unique()
                 num_unique = len(unique)
                 d = dict(zip(unique, range(num_unique)))
@@ -31,7 +36,7 @@ class UNSW_NB15(Dataset):
                 self.categorical_dicts[idx] = d
                 self.frame.iloc[:, idx] = self.frame.iloc[:, idx].map(d)
             
-            elif ((self.dtypes[t] == 'float' or self.dtypes[t] == 'int') and raw_dtypes[idx] != 'binary'):
+            elif ((self.dtypes[t] == 'float' or self.dtypes[t] == 'int') and raw_dtypes.iloc[idx] != 'binary'):
                 num_unique = len(self.frame.iloc[:, idx].unique())
                 n_c = num_unique if num_unique < self.num_clusters else self.num_clusters
                 
@@ -65,7 +70,3 @@ class UNSW_NB15(Dataset):
 
     def get_occs(self):
         return self.occs
-    
-data = UNSW_NB15(data_csv='UNSW-NB15_back up/UNSW-NB15_1.csv',
-                   dtype_xlsx='UNSW-NB15_back up/NUSW-NB15_features.xlsx',
-                   num_clusters=10)
