@@ -73,13 +73,13 @@ def train(dataloader):
             loss = 0
             for i, feat in enumerate(y):
                 loss += criterion(feat, x[:, i].long())
-                total_correct += sum(feat.argmax(dim=0) == x[:, i])
-                print(total_correct)
+                total_correct += sum(feat.argmax(dim=1) == x[:, i]).item()
+                item_count += feat.shape[0]
+                
             
             loss.backward()
             optimizer.step()
 
-            item_count += len(y) * batch.shape[0]
             total_loss += loss.item()
             
             tepoch.set_postfix(loss=total_loss / item_count, accuracy=total_correct / item_count)
@@ -101,8 +101,8 @@ def validate(dataloader):
                 loss = 0
                 for i, feat in enumerate(y):
                     loss += criterion(feat, x[:, i].long())
-                    total_correct += sum(feat.argmax(dim=0) == x[:, i])
-                    print(total_correct)
+                    total_correct += sum(feat.argmax(dim=1) == x[:, i]).item()
+                    item_count += feat.shape[0]
     
                 item_count += len(y) * batch.shape[0]
                 total_loss += loss.item()
