@@ -31,7 +31,7 @@ class DynamicLinear(nn.Module):
     
     def forward(self, x, E):
         logits = (torch.matmul(x, E.transpose(1, 0)) + self.bias) / (self.tl * self.tu)
-        return F.softmax(logits, dim=1)
+        return logits
 
 class TabMT(nn.Module):
     def __init__(self, width, depth, heads, dropout, dim_feedforward, tu, occs, cat_dicts):
@@ -98,5 +98,5 @@ class TabMT(nn.Module):
         y = y + self.positional_encoding
         y = self.encoder(y)
         y = self.linear(y, mask)
-        return y, x[:, mask]
+        return y, x[:, mask == 1]
         

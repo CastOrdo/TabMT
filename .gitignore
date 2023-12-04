@@ -1,0 +1,5 @@
+UNSW-NB15_back up/
+__pycache__/
+.ipynb_checkpoints/
+saved_models/
+logs/
