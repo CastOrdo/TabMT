@@ -26,6 +26,8 @@ class UNSW_NB15(Dataset):
             self.frame.iloc[:, idx] = self.frame.iloc[:, idx].astype(self.dtypes[idx], errors='ignore') # enforcing dtypes and dropping bad rows
             good_indices = self.frame.iloc[:, idx].apply(lambda x: isinstance(x, eval(self.dtypes[idx])))
             if (sum(good_indices) < len(self.frame)):
+                print(f'Scrapping {sum(~good_indices)} rows due to bad values in column {idx}.')
+                print(f'Here is an example of a bad value: {self.frame[~good_indices].iloc[0, idx]}')
                 self.frame = self.frame[good_indices]
             
             if (self.dtypes[t] == 'str'):

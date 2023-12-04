@@ -6,10 +6,15 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 import numpy as np
 
+import wandb
 import tqdm
 import argparse
 
 parser = argparse.ArgumentParser()
+
+parser.add_argument('--data_csv', type=str, required=True)
+parser.add_argument('--dtype_xlsx', type=str, required=True)
+
 parser.add_argument('--width', type=int, required=True)
 parser.add_argument('--depth', type=int, required=True)
 parser.add_argument('--heads', type=int, required=True)
@@ -24,14 +29,14 @@ parser.add_argument('--epochs', type=int, required=True)
 parser.add_argument('--batch_size', type=int, required=True)
 
 parser.add_argument('--savename', type=str, required=True)
-# parser.add_argument('--wandb', type=int, required=True)
+parser.add_argument('--wandb', type=int, required=True)
 
 parser.add_argument('--train_size', type=float, required=True)
 
 args = parser.parse_args()
 
-dataset = UNSW_NB15(data_csv='UNSW-NB15_back up/UNSW-NB15_1.csv',
-                   dtype_xlsx='UNSW-NB15_back up/NUSW-NB15_features.xlsx',
+dataset = UNSW_NB15(data_csv=args.data_csv,
+                   dtype_xlsx=args.dtype_xlsx,
                    num_clusters=args.num_clusters)
 occs = dataset.get_occs()
 cat_dicts = dataset.get_categorical_dicts()
@@ -82,7 +87,7 @@ def train(dataloader):
 
             total_loss += loss.item()
             
-            tepoch.set_postfix(loss=total_loss / item_count, accuracy=total_correct / item_count)
+            tepoch.set_postfix(loss=total_loss / item_count, accuracy=total_correct / item_count, num_feats=len(y))
     
     return total_loss / item_count, total_correct / item_count
 
@@ -107,9 +112,15 @@ def validate(dataloader):
                 item_count += len(y) * batch.shape[0]
                 total_loss += loss.item()
                 
-                tepoch.set_postfix(loss=total_loss / item_count, accuracy=total_correct / item_count)
+                tepoch.set_postfix(loss=total_loss / item_count, accuracy=total_correct / item_count, num_feats=len(y))
         
         return total_loss / item_count, total_correct / item_count
+
+if (args.wandb):
+    wandb.login()
+    wandb.init(project='TabMT', 
+               config=vars(args),
+               name=args.savename)
 
 save_path = 'saved_models/' + args.savename
 personal_best = 0
@@ -122,4 +133,11 @@ for epoch in range(args.epochs):
     if (v_loss < personal_best):
         personal_best = v_loss
         torch.save(model.state_dict(), save_path)
+
+    if (args.wandb):
+        wandb.log({"train_accuracy": t_acc, 
+                   "train_loss": t_loss,
+                  "validation_accuracy": v_acc,
+                  "validation_loss": v_loss,
+                  "epoch": epoch})
     
