@@ -65,21 +65,18 @@ class TabMT(nn.Module):
                                                         batch_first=True)
         self.encoder = nn.TransformerEncoder(self.encoder_layer, num_layers=self.depth)
 
-        self.mask_vec = standard_norm.sample((1, self.width))
-        self.mask_vec.requires_grad = True
+        self.mask_vec = nn.Parameter(standard_norm.sample((1, self.width)))
+        self.mask_vec.requires_grad = False
 
         self.positional_encoding = position_norm.sample((len(occs) + len(cat_dicts), self.width))
         self.positional_encoding = nn.Parameter(self.positional_encoding)
 
     def embed(self, x, mask):
-        out = []
-        for idx in range(x.shape[1]):
-            if (mask[idx] == 1):
-                e = self.mask_vec.expand(x.shape[0], -1) # test this later
-            else:
-                e = self.embeddings[idx](x[:, idx])
-            out.append(e.view(-1, 1, self.width))
-        return torch.cat(out, dim=1)
+        out = self.mask_vec.repeat(x.shape[0], x.shape[1], 1)
+        for ft in range(x.shape[1]):
+            col_mask = (mask[ft] == 0) & (x[:, ft] != -1)
+            out[col_mask, ft] = self.embeddings[ft](x[col_mask, ft])
+        return out
 
     def linear(self, x, mask):
         out = []
@@ -99,4 +96,18 @@ class TabMT(nn.Module):
         y = self.encoder(y)
         y = self.linear(y, mask)
         return y, x[:, mask == 1]
-        
+
+    def gen_batch(self, rows):
+        with torch.no_grad():
+            batch = torch.empty((rows, len(self.embeddings)))
+            mask = torch.ones(len(self.embeddings)).int()
+            
+            for i in torch.randperm(len(self.embeddings)):
+                y = self.embed(batch, mask)
+                y = y + self.positional_encoding
+                y = self.encoder(y)
+                y = self.linear(y, mask)
+
+                batch[:, i] = y[i]
+                mask[i] = 0
+        return batch

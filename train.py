@@ -12,7 +12,7 @@ import argparse
 
 parser = argparse.ArgumentParser()
 
-parser.add_argument('--data_csv', type=str, required=True)
+parser.add_argument('--data_csv', type=str, nargs='+', required=True)
 parser.add_argument('--dtype_xlsx', type=str, required=True)
 
 parser.add_argument('--width', type=int, required=True)
@@ -57,7 +57,6 @@ model = TabMT(width=args.width,
               dim_feedforward=args.dim_feedforward, 
               tu=[args.tu for i in range(len(occs) + len(cat_dicts))], 
               cat_dicts=cat_dicts).to(device)
-print(model)
 
 criterion = nn.CrossEntropyLoss()
 optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate)
@@ -109,7 +108,6 @@ def validate(dataloader):
                     total_correct += sum(feat.argmax(dim=1) == x[:, i]).item()
                     item_count += feat.shape[0]
     
-                item_count += len(y) * batch.shape[0]
                 total_loss += loss.item()
                 
                 tepoch.set_postfix(loss=total_loss / item_count, accuracy=total_correct / item_count, num_feats=len(y))
@@ -123,12 +121,12 @@ if (args.wandb):
                name=args.savename)
 
 save_path = 'saved_models/' + args.savename
-personal_best = 0
+personal_best = 1000
 for epoch in range(args.epochs):
     model.train(True)
     t_loss, t_acc = train(train_loader)
     model.eval()
-    v_conf, v_loss = validate(test_loader)
+    v_loss, v_acc = validate(test_loader)
     
     if (v_loss < personal_best):
         personal_best = v_loss
