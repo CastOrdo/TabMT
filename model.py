@@ -94,7 +94,7 @@ class TabMT(nn.Module):
         y = self.embed(x, mask)
         y = y + self.positional_encoding
         y = self.encoder(y)
-        y = self.linear(y, mask)
+        y = self.linear(y, mask)        
         return y, x[:, mask == 1]
 
     def gen_batch(self, rows):

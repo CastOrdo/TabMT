@@ -58,7 +58,7 @@ model = TabMT(width=args.width,
               tu=[args.tu for i in range(len(occs) + len(cat_dicts))], 
               cat_dicts=cat_dicts).to(device)
 
-criterion = nn.CrossEntropyLoss()
+criterion = nn.CrossEntropyLoss(ignore_index=-1)
 optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate)
 
 def train(dataloader):
