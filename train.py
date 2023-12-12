@@ -75,9 +75,29 @@ class WeightedF1():
         return None
     
     def compute(self):
-        weightedF1 = [f1_score(self.record[i][1], self.record[i][0], average='weighted') for i in range(len(self.record)) if len(self.record[i][0]) > 0]
-        mean_weightedF1 = np.array(weightedF1).mean()
+        weightedF1 = np.array([f1_score(self.record[i][1], self.record[i][0], average='weighted') for i in range(len(self.record)) if len(self.record[i][0]) > 0])
+        
+        mean_weightedF1 = weightedF1.mean()
+        upper_mean_weightedF1 = weightedF1[weightedF1 > weightedF1.median()].mean() # experimental features
+        lower_mean_weightedF1 = weightedF1[weightedF1 <= weightedF1.median()].mean()
         return weightedF1, mean_weightedF1
+
+class ReverseTokenizer():
+    def __init__(self, cat_dicts, clstr_cntrs, num_ft):
+        self.num_ft = num_ft
+        self.reverse_table = {}
+        for ft in range(num_ft):
+            if (cat_dicts[ft] != None):
+                self.reverse_table[ft] = {v: k for k, v in cat_dicts[ft].items()}
+            else:
+                self.reverse_table[ft] = {zip(range(len(clstr_cntrs[i])), clstr_cntrs[i])}
+
+    def decode(self, x):
+        x = np.array(x)
+        out = pd.DataFrame(x, dtype='float')
+        for ft in self.num_ft:
+            out[ft].map(self.reverse_table[ft])
+        return out
 
 def train(dataloader):
     f1 = WeightedF1(num_ft)
