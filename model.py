@@ -9,6 +9,7 @@ position_norm = Normal(0, 0.01)
 class OrderedEmbedding(nn.Module):
     def __init__(self, occ, width):
         super(OrderedEmbedding, self).__init__()
+        occ = occ.astype('float')
         self.r = torch.tensor((occ - min(occ)) / (max(occ) - min(occ)), dtype=torch.float).view(-1,1)
         self.E = torch.zeros((len(occ), width), dtype=torch.float)
         self.l, self.h = standard_norm.sample([width]), standard_norm.sample([width])

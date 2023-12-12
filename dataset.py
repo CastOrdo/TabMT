@@ -18,8 +18,9 @@ class UNSW_NB15(Dataset):
         self.num_clusters = num_clusters
         self.feat_legend = pd.read_excel(dtype_xlsx, header=0, engine='openpyxl')
         
-        raw_frame = self.read_files(data_csv)
-        self.raw_frame = self.cure_frame(raw_frame)
+        # raw_frame = self.read_files(data_csv)
+        # self.raw_frame = self.cure_frame(raw_frame)
+        self.raw_frame = pd.DataFrame()
 
         if os.path.exists('processed_data/meta.pkl'):
             meta = pickle.load(open("processed_data/meta.pkl", "rb"))
@@ -75,7 +76,7 @@ class UNSW_NB15(Dataset):
             cat_dicts[i] = table if not continuous else None
         
         frame.fillna(value=-1, inplace=True)
-        frame = frame.sample(frac=0.0003, random_state=42) # shuffle
+        frame = frame.sample(frac=1, random_state=42) # shuffle
         return frame, cat_dicts, clstr_cntrs
 
     def recover_data(self):
@@ -94,7 +95,7 @@ class UNSW_NB15(Dataset):
 
     def __getitem__(self, idx):
         idx = idx.tolist() if torch.is_tensor(idx) else idx
-        item = self.frame.iloc[idx, :]
+        item = self.frame.iloc[idx].values
         return torch.tensor(item, dtype=torch.int)
 
     def get_categorical_dicts(self):
