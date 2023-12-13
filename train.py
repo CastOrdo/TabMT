@@ -78,8 +78,6 @@ class WeightedF1():
         weightedF1 = np.array([f1_score(self.record[i][1], self.record[i][0], average='weighted') for i in range(len(self.record)) if len(self.record[i][0]) > 0])
         
         mean_weightedF1 = weightedF1.mean()
-        upper_mean_weightedF1 = weightedF1[weightedF1 > weightedF1.median()].mean() # experimental features
-        lower_mean_weightedF1 = weightedF1[weightedF1 <= weightedF1.median()].mean()
         return weightedF1, mean_weightedF1
 
 class ReverseTokenizer():

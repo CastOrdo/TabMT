@@ -17,10 +17,6 @@ class UNSW_NB15(Dataset):
     def __init__(self, data_csv, dtype_xlsx, num_clusters): 
         self.num_clusters = num_clusters
         self.feat_legend = pd.read_excel(dtype_xlsx, header=0, engine='openpyxl')
-        
-        # raw_frame = self.read_files(data_csv)
-        # self.raw_frame = self.cure_frame(raw_frame)
-        self.raw_frame = pd.DataFrame()
 
         if os.path.exists('processed_data/meta.pkl'):
             meta = pickle.load(open("processed_data/meta.pkl", "rb"))
@@ -30,7 +26,9 @@ class UNSW_NB15(Dataset):
         if (meta['num_clusters'] == self.num_clusters and meta['data_csv'] == data_csv):
             self.frame, self.cat_dicts, self.clstr_cntrs = self.recover_data()
         else:
-            self.frame, self.cat_dicts, self.clstr_cntrs = self.process_data()
+            raw_frame = self.read_files(data_csv)
+            raw_frame = self.cure_frame(raw_frame)
+            self.frame, self.cat_dicts, self.clstr_cntrs = self.process_data(raw_frame)
             
             meta = {"num_clusters": self.num_clusters, "data_csv": data_csv}
             pickle.dump(meta, open("processed_data/meta.pkl", "wb"))
@@ -57,7 +55,7 @@ class UNSW_NB15(Dataset):
         return frame
 
     def process_data(self):
-        frame, cat_dicts, clstr_cntrs = self.raw_frame.copy(), {}, {}
+        frame, cat_dicts, clstr_cntrs = raw_frame.copy(), {}, {}
         for i, ft in enumerate(tqdm(frame.columns, desc="Processing Data")):
             type = self.feat_legend.loc[i, 'Type '].lower()
             name = self.feat_legend.loc[i, 'Name']
@@ -103,9 +101,6 @@ class UNSW_NB15(Dataset):
 
     def get_cluster_centers(self):
         return self.clstr_cntrs
-
-    def get_raw_frame(self):
-        return self.raw_frame
 
     def get_processed_frame(self):
         return self.frame
