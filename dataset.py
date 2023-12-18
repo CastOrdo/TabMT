@@ -107,3 +107,19 @@ class UNSW_NB15(Dataset):
 
     def get_legend_frame(self):
         return self.feat_legend
+
+class ReverseTokenizer():
+    def __init__(self, cat_dicts, clstr_cntrs, num_ft):
+        self.num_ft = num_ft
+        self.reverse_table = {}
+        for ft in range(num_ft):
+            if (cat_dicts[ft] != None):
+                self.reverse_table[ft] = {v: k for k, v in cat_dicts[ft].items()}
+            else:
+                self.reverse_table[ft] = {zip(range(len(clstr_cntrs[ft])), clstr_cntrs[ft])}
+
+    def decode(self, x):
+        out = pd.DataFrame(x.numpy(), dtype='int')
+        for ft in range(self.num_ft):
+            out.iloc[:, ft] = out.iloc[:, ft].replace(self.reverse_table[ft])
+        return out

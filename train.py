@@ -61,6 +61,7 @@ model = TabMT(width=args.width,
               tu=[args.tu for i in range(len(occs) + len(cat_dicts))], 
               cat_dicts=cat_dicts,
               num_feat=num_ft).to(device)
+model = nn.DataParallel(model)
 
 criterion = nn.CrossEntropyLoss(ignore_index=-1)
 optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate)
@@ -70,8 +71,8 @@ class WeightedF1():
         self.record = [[[], []] for ft in range(num_ft)]
     
     def append(self, predictions, truths, i):
-        self.record[i][0].extend(predictions)
-        self.record[i][1].extend(truths)
+        self.record[i][0].extend(predictions.detach().cpu().tolist())
+        self.record[i][1].extend(truths.cpu().tolist())
         return None
     
     def compute(self):
@@ -79,23 +80,6 @@ class WeightedF1():
         
         mean_weightedF1 = weightedF1.mean()
         return weightedF1, mean_weightedF1
-
-class ReverseTokenizer():
-    def __init__(self, cat_dicts, clstr_cntrs, num_ft):
-        self.num_ft = num_ft
-        self.reverse_table = {}
-        for ft in range(num_ft):
-            if (cat_dicts[ft] != None):
-                self.reverse_table[ft] = {v: k for k, v in cat_dicts[ft].items()}
-            else:
-                self.reverse_table[ft] = {zip(range(len(clstr_cntrs[i])), clstr_cntrs[i])}
-
-    def decode(self, x):
-        x = np.array(x)
-        out = pd.DataFrame(x, dtype='float')
-        for ft in self.num_ft:
-            out[ft].map(self.reverse_table[ft])
-        return out
 
 def train(dataloader):
     f1 = WeightedF1(num_ft)
@@ -113,7 +97,7 @@ def train(dataloader):
             for y_col, ft_idx in zip(y, i):
                 loss += criterion(y_col, batch[:, ft_idx].long())
 
-                f1.append(y_col.argmax(dim=1).tolist(), batch[:, ft_idx], ft_idx)
+                f1.append(y_col.argmax(dim=1), batch[:, ft_idx], ft_idx)
                 total_correct += sum(y_col.argmax(dim=1) == batch[:, ft_idx]).item()
                 item_count += y_col.shape[0]
             
@@ -143,7 +127,7 @@ def validate(dataloader):
                 for y_col, ft_idx in zip(y, i):
                     loss += criterion(y_col, batch[:, ft_idx].long())
     
-                    f1.append(y_col.argmax(dim=1).tolist(), batch[:, ft_idx], ft_idx)
+                    f1.append(y_col.argmax(dim=1), batch[:, ft_idx], ft_idx)
                     total_correct += sum(y_col.argmax(dim=1) == batch[:, ft_idx]).item()
                     item_count += y_col.shape[0]
         

@@ -95,14 +95,13 @@ class TabMT(nn.Module):
         return y, i
 
     def gen_batch(self, x):
-        x = x.long()
-        with torch.no_grad():
-            for i in torch.randperm(x.shape[1]):
-                y = self.embed(x, torch.ones(x.shape[1]))
-                y = y + self.positional_encoding
-                y = self.encoder(y)
-                y = self.linear(y, [i])
-
-                missing = torch.where(x[:, i] == -1)[0]
-                x[missing, i] = y[0][missing].argmax(dim=1)
+        for i in torch.randperm(x.shape[1]):
+            y = self.embed(x, torch.ones(x.shape[1]))
+            y = y + self.positional_encoding
+            y = self.encoder(y)
+            y = self.linear(y, [i])
+    
+            missing = torch.where(x[:, i] == -1)[0]
+            x[missing, i] = y[0][missing].argmax(dim=1)
+        
         return x
