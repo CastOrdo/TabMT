@@ -96,7 +96,9 @@ def train(dataloader):
             y, i = model(batch)
 
             loss = 0
-            for y_col, ft_idx in zip(y, i):
+            for ft_idx in i:
+                y_col = model.module.fast_linear(y, ft_idx)
+                
                 loss += criterion(y_col, batch[:, ft_idx].long())
 
                 f1.append(y_col.argmax(dim=1), batch[:, ft_idx], ft_idx)
@@ -126,7 +128,9 @@ def validate(dataloader):
                 y, i = model(batch)
     
                 loss = 0
-                for y_col, ft_idx in zip(y, i):
+                for ft_idx in i:
+                    y_col = model.fast_linear(y, ft_idx)
+                    
                     loss += criterion(y_col, batch[:, ft_idx].long())
     
                     f1.append(y_col.argmax(dim=1), batch[:, ft_idx], ft_idx)

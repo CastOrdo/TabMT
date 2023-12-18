@@ -3,6 +3,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions.normal import Normal
 
+import datetime as dt
+
 standard_norm = Normal(0, 0.05)
 position_norm = Normal(0, 0.01)
 
@@ -74,6 +76,18 @@ class TabMT(nn.Module):
         self.mask_vec = nn.Parameter(standard_norm.sample((1, self.width)), requires_grad=False)
         self.positional_encoding = nn.Parameter(position_norm.sample((num_feat, self.width)))
 
+        self.offsets = torch.tensor([0] + [self.Embeddings[i].weight().shape[0] for i in range(len(self.Embeddings) - 1)])
+        self.offsets = torch.cumsum(self.offsets, dim=0)
+
+    def fast_embed(self, x, mask):
+        idx = (x != -1) & (mask == 0)
+        u = x + self.offsets
+        
+        E = torch.cat([self.Embeddings[i].weight() for i in range(x.shape[1])], dim=0)
+        y = self.mask_vec.repeat(x.shape[0], x.shape[1], 1)
+        y[idx] = E[u][idx]
+        return y
+    
     def embed(self, x, mask):
         out = self.mask_vec.repeat(x.shape[0], x.shape[1], 1)
         for ft in range(x.shape[1]):
@@ -84,14 +98,17 @@ class TabMT(nn.Module):
     def linear(self, x, i):        
         return [self.LinearLayers[ft](x[:, ft], self.Embeddings[ft].weight()) for ft in i]
 
+    def fast_linear(self, x, i):
+        return self.LinearLayers[i](x[:, i], self.Embeddings[i].weight())
+
     def forward(self, x):
         mask = torch.rand(x.shape[1]).round().int()
         i = torch.where(mask == 1)[0].tolist()
-        
-        y = self.embed(x, mask)
+
+        y = self.fast_embed(x, mask)
+
         y = y + self.positional_encoding
         y = self.encoder(y)
-        y = self.linear(y, i)   
         return y, i
 
     def gen_batch(self, x):
