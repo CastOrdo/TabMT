@@ -17,6 +17,7 @@ class UNSW_NB15(Dataset):
     def __init__(self, data_csv, dtype_xlsx, num_clusters): 
         self.num_clusters = num_clusters
         self.feat_legend = pd.read_excel(dtype_xlsx, header=0, engine='openpyxl')
+        names = self.feat_legend['Name'].str.lower()
 
         if os.path.exists('processed_data/meta.pkl'):
             meta = pickle.load(open("processed_data/meta.pkl", "rb"))
@@ -24,9 +25,13 @@ class UNSW_NB15(Dataset):
             meta = {"num_clusters": None, "data_csv": None}
             
         if (meta['num_clusters'] == self.num_clusters and meta['data_csv'] == data_csv):
-            self.frame, self.cat_dicts, self.clstr_cntrs = self.recover_data()
+            self.frame, self.cat_dicts, self.clstr_cntrs, self.labels = self.recover_data()
+            print('Recovered data from cache!')
         else:
-            raw_frame = self.read_files(data_csv)
+            raw_frame, self.labels = self.read_files(data_csv, names)
+            raw_frame.drop(['sport', 'dsport', 'label'], axis=1, inplace=True)
+            self.feat_legend.drop([1, 3, 48], axis=0, inplace=True)
+
             raw_frame = self.cure_frame(raw_frame)
             self.frame, self.cat_dicts, self.clstr_cntrs = self.process_data(raw_frame)
             
@@ -34,18 +39,19 @@ class UNSW_NB15(Dataset):
             pickle.dump(meta, open("processed_data/meta.pkl", "wb"))
             pickle.dump(self.cat_dicts, open("processed_data/cat_dicts.pkl", "wb"))
             pickle.dump(self.clstr_cntrs, open("processed_data/clstr_cntrs.pkl", "wb"))
+            pickle.dump(self.labels, open("processed_data/labels.pkl", "wb"))
             self.frame.to_csv('processed_data/data.csv', index=False)
             
 
-    def read_files(self, data_csv):
-        frame = pd.read_csv(data_csv[0], header=0, dtype=object)
-        for i in range(1, len(data_csv)):
-            df = pd.read_csv(data_csv[i], header=0, names=frame.columns, dtype=object)
+    def read_files(self, data_csv, names):
+        frame = pd.DataFrame()
+        for i in range(len(data_csv)):
+            df = pd.read_csv(data_csv[i], header=0, names=names, dtype=object)
             frame = pd.concat([frame, df], axis=0)
 
-        condition = frame['CVSS'] == 'Normal'
-        frame.loc[condition, 'Attack category_x'] = 'FalsePositive'
-        return frame
+        labels = frame['label'].copy()
+        frame.loc[frame['cvss'] == 'Normal', 'attack_cat'] = 'FalsePositive'
+        return frame, labels
 
     def cure_frame(self, frame):
         dtypes = self.feat_legend['Type '].str.lower() # curing data
@@ -54,11 +60,11 @@ class UNSW_NB15(Dataset):
             frame.iloc[:, idx] = pd.to_numeric(frame.iloc[:, idx], errors='coerce') 
         return frame
 
-    def process_data(self):
+    def process_data(self, raw_frame):
         frame, cat_dicts, clstr_cntrs = raw_frame.copy(), {}, {}
         for i, ft in enumerate(tqdm(frame.columns, desc="Processing Data")):
-            type = self.feat_legend.loc[i, 'Type '].lower()
-            name = self.feat_legend.loc[i, 'Name']
+            type = self.feat_legend['Type '].iloc[i].lower()
+            name = self.feat_legend['Name'].iloc[i]
             continuous = (type != 'nominal') and (type != 'binary') and (name != 'sport') and (name != 'dsport') 
 
             unique = unique_non_null(frame[ft])
@@ -81,7 +87,8 @@ class UNSW_NB15(Dataset):
         frame = pd.read_csv('processed_data/data.csv', header=0)
         cat_dicts = pickle.load(open("processed_data/cat_dicts.pkl", "rb"))
         clstr_cntrs = pickle.load(open("processed_data/clstr_cntrs.pkl", "rb"))
-        return frame, cat_dicts, clstr_cntrs
+        labels = pickle.load(open("processed_data/labels.pkl", "rb"))
+        return frame, cat_dicts, clstr_cntrs, labels
     
     def quantizer(self, x, num_clusters):
         x = np.array(x, dtype=float).reshape(-1,1)
@@ -107,6 +114,12 @@ class UNSW_NB15(Dataset):
 
     def get_legend_frame(self):
         return self.feat_legend
+
+    def get_label_idx(self):
+        return (self.frame.columns == 'cvss') | (self.frame.columns == 'label') | (self.frame.columns == 'attack_cat')
+
+    def get_label_column(self):
+        return self.labels
 
 class ReverseTokenizer():
     def __init__(self, cat_dicts, clstr_cntrs, num_ft):

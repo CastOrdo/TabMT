@@ -6,8 +6,10 @@ from model import TabMT, OrderedEmbedding
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
+from torch.utils.data import SubsetRandomSampler
 
-from sklearn.metrics import f1_score
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import f1_score, accuracy_score
 import numpy as np
 
 import wandb
@@ -44,12 +46,14 @@ dataset = UNSW_NB15(data_csv=args.data_csv,
                    num_clusters=args.num_clusters)
 occs = dataset.get_cluster_centers()
 cat_dicts = dataset.get_categorical_dicts()
+never_mask = dataset.get_label_idx()
+labels = dataset.get_label_column()
 num_ft = len(occs)
 
-train_size = int(args.train_size * len(dataset))
-test_size = len(dataset) - train_size
-train_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, test_size])
-train_loader, test_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True), DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False)
+train_idx, test_idx= train_test_split(np.arange(len(labels)), test_size=1-args.train_size, stratify=labels, shuffle=True, random_state=42)
+train_sampler, test_sampler = SubsetRandomSampler(train_idx), SubsetRandomSampler(test_idx)
+train_loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False, sampler=train_sampler)
+test_loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False, sampler=test_sampler)
 
 GPU_indx = 0
 device = torch.device(GPU_indx if torch.cuda.is_available() else 'cpu')
@@ -62,13 +66,14 @@ model = TabMT(width=args.width,
               dim_feedforward=args.dim_feedforward, 
               tu=[args.tu for i in range(len(occs) + len(cat_dicts))], 
               cat_dicts=cat_dicts,
-              num_feat=num_ft).to(device)
+              num_feat=num_ft,
+              never_mask=never_mask).to(device)
 model = nn.DataParallel(model)
 
 criterion = nn.CrossEntropyLoss(ignore_index=-1)
 optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate)
 
-class WeightedF1():
+class TrainingMetrics():
     def __init__(self, num_ft):
         self.record = [[[], []] for ft in range(num_ft)]
     
@@ -77,14 +82,13 @@ class WeightedF1():
         self.record[i][1].extend(truths.cpu().tolist())
         return None
     
-    def compute(self):
-        weightedF1 = np.array([f1_score(self.record[i][1], self.record[i][0], average='weighted') for i in range(len(self.record)) if len(self.record[i][0]) > 0])
-        
-        mean_weightedF1 = weightedF1.mean()
-        return weightedF1, mean_weightedF1
+    def compute(self): 
+        macroF1 = np.array([f1_score(self.record[i][1], self.record[i][0], average='macro') for i in range(len(self.record)) if len(self.record[i][0]) > 0])
+        accuracies = np.array([accuracy_score(self.record[i][1], self.record[i][0]) for i in range(len(self.record)) if len(self.record[i][0]) > 0])
+        return macroF1, accuracies
 
 def train(dataloader):
-    f1 = WeightedF1(num_ft)
+    tracker = TrainingMetrics(num_ft)
     total_loss = total_correct = item_count = 0
     with tqdm.tqdm(dataloader, unit="batch") as tepoch:
         for batch in tepoch:
@@ -96,12 +100,10 @@ def train(dataloader):
             y, i = model(batch)
 
             loss = 0
-            for ft_idx in i:
-                y_col = model.module.fast_linear(y, ft_idx)
-                
+            for y_col, ft_idx in zip(y, i):
                 loss += criterion(y_col, batch[:, ft_idx].long())
 
-                f1.append(y_col.argmax(dim=1), batch[:, ft_idx], ft_idx)
+                tracker.append(y_col.argmax(dim=1), batch[:, ft_idx], ft_idx)
                 total_correct += sum(y_col.argmax(dim=1) == batch[:, ft_idx]).item()
                 item_count += y_col.shape[0]
             
@@ -112,13 +114,13 @@ def train(dataloader):
             
             tepoch.set_postfix(loss=total_loss / item_count, accuracy=total_correct / item_count, num_feats=len(y))
 
-    weightedF1, mean_weightedF1 = f1.compute()
+    macroF1, accuracies = tracker.compute()
         
-    return total_loss / item_count, total_correct / item_count, weightedF1, mean_weightedF1
+    return total_loss / item_count, macroF1, accuracies
 
 def validate(dataloader):
     with torch.no_grad():
-        f1 = WeightedF1(num_ft)
+        tracker = TrainingMetrics(num_ft)
         total_loss = total_correct = item_count = 0
         with tqdm.tqdm(dataloader, unit="batch") as tepoch:
             for batch in tepoch:
@@ -128,12 +130,10 @@ def validate(dataloader):
                 y, i = model(batch)
     
                 loss = 0
-                for ft_idx in i:
-                    y_col = model.fast_linear(y, ft_idx)
-                    
+                for y_col, ft_idx in zip(y, i):
                     loss += criterion(y_col, batch[:, ft_idx].long())
     
-                    f1.append(y_col.argmax(dim=1), batch[:, ft_idx], ft_idx)
+                    tracker.append(y_col.argmax(dim=1), batch[:, ft_idx], ft_idx)
                     total_correct += sum(y_col.argmax(dim=1) == batch[:, ft_idx]).item()
                     item_count += y_col.shape[0]
         
@@ -141,9 +141,9 @@ def validate(dataloader):
                 
                 tepoch.set_postfix(loss=total_loss / item_count, accuracy=total_correct / item_count, num_feats=len(y))
             
-        weightedF1, mean_weightedF1 = f1.compute()    
+        macroF1, accuracies = tracker.compute()
         
-        return total_loss / item_count, total_correct / item_count, weightedF1, mean_weightedF1
+        return total_loss / item_count, macroF1, accuracies
 
 if (args.wandb):
     wandb.login()
@@ -155,21 +155,25 @@ save_path = 'saved_models/' + args.savename
 personal_best = 1000
 for epoch in range(args.epochs):
     model.train(True)
-    t_loss, t_acc, t_weightedF1, t_mean_weightedF1 = train(train_loader)
+    t_loss, t_macroF1, t_accuracies = train(train_loader)
     
     model.eval()
-    v_loss, v_acc, v_weightedF1, v_mean_weightedF1 = validate(test_loader)
+    v_loss, v_macroF1, v_accuracies = validate(test_loader)
     
     if (v_loss < personal_best):
         personal_best = v_loss
         torch.save(model.state_dict(), save_path)
 
     if (args.wandb):
-        wandb.log({"train_accuracy": t_acc, 
+        wandb.log({"train_mean_accuracy": t_accuracies.mean(),
+                   "train_accuracies": t_accuracies,
                    "train_loss": t_loss,
-                   "validation_accuracy": v_acc,
+                   "validation_mean_accuracy": v_accuracies.mean(),
+                   "validation_accuracies": v_accuracies,
                    "validation_loss": v_loss,
-                   "train_MWF1": t_mean_weightedF1,
-                   "validation_MWF1": v_mean_weightedF1,
+                   "train_mean_macroF1": t_macroF1.mean(),
+                   "train_macroF1s": t_macroF1,
+                   "validation_mean_macroF1": v_macroF1.mean(),
+                   "validation_macroF1s": v_macroF1,
                    "epoch": epoch})
     

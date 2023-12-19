@@ -49,7 +49,7 @@ class DynamicLinear(nn.Module):
         return logits
 
 class TabMT(nn.Module):
-    def __init__(self, width, depth, heads, dropout, dim_feedforward, tu, occs, cat_dicts, num_feat):
+    def __init__(self, width, depth, heads, dropout, dim_feedforward, tu, occs, cat_dicts, num_feat, never_mask):
         super(TabMT, self).__init__()
         self.width = width
         self.depth = depth
@@ -57,6 +57,8 @@ class TabMT(nn.Module):
         self.dim_feedforward = dim_feedforward
         self.dropout = dropout
         self.tu = tu
+
+        self.never_mask = never_mask
 
         self.Embeddings, self.LinearLayers = nn.ModuleList(), nn.ModuleList()
         for idx in range(num_feat):
@@ -98,17 +100,16 @@ class TabMT(nn.Module):
     def linear(self, x, i):        
         return [self.LinearLayers[ft](x[:, ft], self.Embeddings[ft].weight()) for ft in i]
 
-    def fast_linear(self, x, i):
-        return self.LinearLayers[i](x[:, i], self.Embeddings[i].weight())
-
     def forward(self, x):
         mask = torch.rand(x.shape[1]).round().int()
+        mask[self.never_mask] = 0
+        
         i = torch.where(mask == 1)[0].tolist()
 
-        y = self.fast_embed(x, mask)
-
+        y = self.embed(x, mask)
         y = y + self.positional_encoding
         y = self.encoder(y)
+        y = self.linear(y, i)
         return y, i
 
     def gen_batch(self, x):
