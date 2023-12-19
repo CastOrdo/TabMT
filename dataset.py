@@ -84,7 +84,7 @@ class UNSW_NB15(Dataset):
         return frame, cat_dicts, clstr_cntrs
 
     def recover_data(self):
-        frame = pd.read_csv('processed_data/data.csv', header=0)
+        frame = pd.read_csv('processed_data/data.csv', header=0, dtype=int)
         cat_dicts = pickle.load(open("processed_data/cat_dicts.pkl", "rb"))
         clstr_cntrs = pickle.load(open("processed_data/clstr_cntrs.pkl", "rb"))
         labels = pickle.load(open("processed_data/labels.pkl", "rb"))
@@ -100,7 +100,7 @@ class UNSW_NB15(Dataset):
 
     def __getitem__(self, idx):
         idx = idx.tolist() if torch.is_tensor(idx) else idx
-        item = self.frame.iloc[idx].values
+        item = self.frame.iloc[idx]
         return torch.tensor(item, dtype=torch.int)
 
     def get_categorical_dicts(self):

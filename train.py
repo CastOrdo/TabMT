@@ -41,9 +41,7 @@ parser.add_argument('--train_size', type=float, required=True)
 
 args = parser.parse_args()
 
-dataset = UNSW_NB15(data_csv=args.data_csv,
-                   dtype_xlsx=args.dtype_xlsx,
-                   num_clusters=args.num_clusters)
+dataset = UNSW_NB15(data_csv=args.data_csv, dtype_xlsx=args.dtype_xlsx, num_clusters=args.num_clusters)
 occs = dataset.get_cluster_centers()
 cat_dicts = dataset.get_categorical_dicts()
 never_mask = dataset.get_label_idx()
@@ -145,6 +143,7 @@ def validate(dataloader):
         
         return total_loss / item_count, macroF1, accuracies
 
+
 if (args.wandb):
     wandb.login()
     wandb.init(project='TabMT', 
@@ -157,6 +156,10 @@ for epoch in range(args.epochs):
     model.train(True)
     t_loss, t_macroF1, t_accuracies = train(train_loader)
     
+    test_input = torch.zeros((5, num_ft), dtype=torch.long, device=device) - 1
+    test_input[:, never_mask] = 0
+    print(model.module.gen_batch(test_input))
+    
     model.eval()
     v_loss, v_macroF1, v_accuracies = validate(test_loader)
     
@@ -166,14 +169,14 @@ for epoch in range(args.epochs):
 
     if (args.wandb):
         wandb.log({"train_mean_accuracy": t_accuracies.mean(),
-                   "train_accuracies": t_accuracies,
+                   "train_accuracies": dict(enumerate(t_accuracies)),
                    "train_loss": t_loss,
                    "validation_mean_accuracy": v_accuracies.mean(),
-                   "validation_accuracies": v_accuracies,
+                   "validation_accuracies": dict(enumerate(v_accuracies)),
                    "validation_loss": v_loss,
                    "train_mean_macroF1": t_macroF1.mean(),
-                   "train_macroF1s": t_macroF1,
+                   "train_macroF1s": dict(enumerate(t_macroF1)),
                    "validation_mean_macroF1": v_macroF1.mean(),
-                   "validation_macroF1s": v_macroF1,
+                   "validation_macroF1s": dict(enumerate(v_macroF1)),
                    "epoch": epoch})
     

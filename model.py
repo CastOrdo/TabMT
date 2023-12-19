@@ -75,20 +75,8 @@ class TabMT(nn.Module):
                                                         batch_first=True)
         self.encoder = nn.TransformerEncoder(self.encoder_layer, num_layers=self.depth)
 
-        self.mask_vec = nn.Parameter(standard_norm.sample((1, self.width)), requires_grad=False)
+        self.mask_vec = nn.Parameter(standard_norm.sample((1, self.width)))
         self.positional_encoding = nn.Parameter(position_norm.sample((num_feat, self.width)))
-
-        self.offsets = torch.tensor([0] + [self.Embeddings[i].weight().shape[0] for i in range(len(self.Embeddings) - 1)])
-        self.offsets = torch.cumsum(self.offsets, dim=0)
-
-    def fast_embed(self, x, mask):
-        idx = (x != -1) & (mask == 0)
-        u = x + self.offsets
-        
-        E = torch.cat([self.Embeddings[i].weight() for i in range(x.shape[1])], dim=0)
-        y = self.mask_vec.repeat(x.shape[0], x.shape[1], 1)
-        y[idx] = E[u][idx]
-        return y
     
     def embed(self, x, mask):
         out = self.mask_vec.repeat(x.shape[0], x.shape[1], 1)
@@ -100,12 +88,12 @@ class TabMT(nn.Module):
     def linear(self, x, i):        
         return [self.LinearLayers[ft](x[:, ft], self.Embeddings[ft].weight()) for ft in i]
 
-    def forward(self, x):
-        mask = torch.rand(x.shape[1]).round().int()
+    def forward(self, x):        
+        mask = torch.rand(x.shape[1]).round().int().to(x.device)
         mask[self.never_mask] = 0
         
         i = torch.where(mask == 1)[0].tolist()
-
+        
         y = self.embed(x, mask)
         y = y + self.positional_encoding
         y = self.encoder(y)

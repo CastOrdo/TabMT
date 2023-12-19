@@ -34,6 +34,9 @@ cat_dicts = pickle.load(open("processed_data/cat_dicts.pkl", "rb"))
 occs = pickle.load(open("processed_data/clstr_cntrs.pkl", "rb"))
 num_ft = len(occs)
 
+GPU_indx = 0
+device = torch.device(GPU_indx if torch.cuda.is_available() else 'cpu')
+
 model = TabMT(width=args.width, 
               depth=args.depth, 
               heads=args.heads, 
@@ -42,16 +45,25 @@ model = TabMT(width=args.width,
               dim_feedforward=args.dim_feedforward, 
               tu=[args.tu for i in range(len(occs) + len(cat_dicts))], 
               cat_dicts=cat_dicts,
-              num_feat=num_ft)
+              num_feat=num_ft,
+              never_mask=[-1, -2]).to(device)
 model = nn.DataParallel(model)
-model.load_state_dict(torch.load('saved_models/' + args.savename, map_location=torch.device('cpu')))
+model.load_state_dict(torch.load('saved_models/' + args.savename))
 model.eval()
 
 print('Recovered model!')
 
-x = torch.zeros((args.rows, num_ft), dtype=torch.long) - 1
-y = model.module.gen_batch(x)
+x = torch.zeros((args.rows, num_ft), dtype=torch.long, device=device) - 1
+x[:, -13:] = 3 
+
+y, conf = model.module.gen_batch(x)
+    
+print(y)
+print(conf)
     
 decoder = ReverseTokenizer(cat_dicts, occs, num_ft)
-df = decoder.decode(y)
-df.to_csv('synthetics/' + args.output_name, index=False)
+df = decoder.decode(y.detach().cpu())
+
+print(df)
+
+# df.to_csv('synthetics/' + args.output_name, index=False)
