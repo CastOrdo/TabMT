@@ -1,14 +1,14 @@
 from model import TabMT
 from dataset import UNSW_NB15, ReverseTokenizer
 import torch
+from torch.utils.data import DataLoader
 import torch.nn as nn
 import pickle
 import argparse
 from tqdm import tqdm
 import pandas as pd
 import numpy as np
-
-from torch.utils.data import DataLoader
+from tqdm import tqdm
 
 from sklearn.metrics import f1_score
 
@@ -45,25 +45,21 @@ model = TabMT(width=args.width,
               dim_feedforward=args.dim_feedforward, 
               tu=[args.tu for i in range(len(occs) + len(cat_dicts))], 
               cat_dicts=cat_dicts,
-              num_feat=num_ft,
-              never_mask=[-1, -2]).to(device)
-model = nn.DataParallel(model)
+              num_feat=num_ft).to(device)
 model.load_state_dict(torch.load('saved_models/' + args.savename))
 model.eval()
 
 print('Recovered model!')
-
-x = torch.zeros((args.rows, num_ft), dtype=torch.long, device=device) - 1
-x[:, -13:] = 3 
-
-y, conf = model.module.gen_batch(x)
-    
-print(y)
-print(conf)
-    
 decoder = ReverseTokenizer(cat_dicts, occs, num_ft)
-df = decoder.decode(y.detach().cpu())
 
-print(df)
+frame = pd.DataFrame()
+for r in tqdm(range(args.rows), desc='Generating Data'):
+    x = torch.ones((1, num_ft), dtype=torch.long, device=device) * -1
+    x[:, -2] = 3
 
-# df.to_csv('synthetics/' + args.output_name, index=False)
+    y = model.gen_batch(x)
+    df = decoder.decode(y.detach().cpu())
+    
+    frame = pd.concat([frame, df])
+    
+print(frame)

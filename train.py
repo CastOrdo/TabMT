@@ -64,9 +64,8 @@ model = TabMT(width=args.width,
               dim_feedforward=args.dim_feedforward, 
               tu=[args.tu for i in range(len(occs) + len(cat_dicts))], 
               cat_dicts=cat_dicts,
-              num_feat=num_ft,
-              never_mask=never_mask).to(device)
-model = nn.DataParallel(model)
+              num_feat=num_ft).to(device)
+# model = nn.DataParallel(model)
 
 criterion = nn.CrossEntropyLoss(ignore_index=-1)
 optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate)
@@ -76,8 +75,11 @@ class TrainingMetrics():
         self.record = [[[], []] for ft in range(num_ft)]
     
     def append(self, predictions, truths, i):
-        self.record[i][0].extend(predictions.detach().cpu().tolist())
-        self.record[i][1].extend(truths.cpu().tolist())
+        p = predictions.detach().cpu().tolist()
+        t = truths.detach().cpu().tolist()
+        
+        self.record[i][0].extend(p)
+        self.record[i][1].extend(t)
         return None
     
     def compute(self): 
@@ -95,15 +97,22 @@ def train(dataloader):
             batch = batch.to(device)
             optimizer.zero_grad()
 
-            y, i = model(batch)
+            y, mask = model(batch)
 
             loss = 0
-            for y_col, ft_idx in zip(y, i):
-                loss += criterion(y_col, batch[:, ft_idx].long())
-
-                tracker.append(y_col.argmax(dim=1), batch[:, ft_idx], ft_idx)
-                total_correct += sum(y_col.argmax(dim=1) == batch[:, ft_idx]).item()
-                item_count += y_col.shape[0]
+            for ft, y_ft in enumerate(y):
+                truth = batch[mask[:, ft], ft]
+                pred = y_ft[mask[:, ft]]
+                
+                pred = pred[truth != -1]
+                truth = truth[truth != -1]
+                
+                if (len(truth) > 0):
+                    loss += criterion(pred, truth.long())
+                
+                    tracker.append(pred.argmax(dim=1), truth, ft)
+                    total_correct += sum(pred.argmax(dim=1) == truth).item()
+                    item_count += pred.shape[0]
             
             loss.backward()
             optimizer.step()
@@ -125,15 +134,22 @@ def validate(dataloader):
                 tepoch.set_description(f"Validation Epoch {epoch}") 
     
                 batch = batch.to(device)
-                y, i = model(batch)
+                y, mask = model(batch)
     
                 loss = 0
-                for y_col, ft_idx in zip(y, i):
-                    loss += criterion(y_col, batch[:, ft_idx].long())
-    
-                    tracker.append(y_col.argmax(dim=1), batch[:, ft_idx], ft_idx)
-                    total_correct += sum(y_col.argmax(dim=1) == batch[:, ft_idx]).item()
-                    item_count += y_col.shape[0]
+                for ft, y_ft in enumerate(y):
+                    truth = batch[mask[:, ft], ft]
+                    pred = y_ft[mask[:, ft]]
+                
+                    pred = pred[truth != -1]
+                    truth = truth[truth != -1]
+                    
+                    if (len(truth) > 0):
+                        loss += criterion(pred, truth.long())
+                
+                        tracker.append(pred.argmax(dim=1), truth, ft)
+                        total_correct += sum(pred.argmax(dim=1) == truth).item()
+                        item_count += pred.shape[0]
         
                 total_loss += loss.item()
                 
@@ -155,13 +171,15 @@ personal_best = 1000
 for epoch in range(args.epochs):
     model.train(True)
     t_loss, t_macroF1, t_accuracies = train(train_loader)
-    
-    test_input = torch.zeros((5, num_ft), dtype=torch.long, device=device) - 1
-    test_input[:, never_mask] = 0
-    print(model.module.gen_batch(test_input))
+    print(f't_accuracy: {t_accuracies.mean()}, t_F1: {t_macroF1.mean()}')
     
     model.eval()
+    
+    test_input = torch.zeros((5, num_ft), dtype=torch.long, device=device) - 1
+    print(model.gen_batch(test_input))
+    
     v_loss, v_macroF1, v_accuracies = validate(test_loader)
+    print(f't_accuracy: {v_accuracies.mean()}, t_F1: {v_macroF1.mean()}')
     
     if (v_loss < personal_best):
         personal_best = v_loss

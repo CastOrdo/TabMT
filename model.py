@@ -49,7 +49,7 @@ class DynamicLinear(nn.Module):
         return logits
 
 class TabMT(nn.Module):
-    def __init__(self, width, depth, heads, dropout, dim_feedforward, tu, occs, cat_dicts, num_feat, never_mask):
+    def __init__(self, width, depth, heads, dropout, dim_feedforward, tu, occs, cat_dicts, num_feat):
         super(TabMT, self).__init__()
         self.width = width
         self.depth = depth
@@ -57,8 +57,6 @@ class TabMT(nn.Module):
         self.dim_feedforward = dim_feedforward
         self.dropout = dropout
         self.tu = tu
-
-        self.never_mask = never_mask
 
         self.Embeddings, self.LinearLayers = nn.ModuleList(), nn.ModuleList()
         for idx in range(num_feat):
@@ -78,36 +76,32 @@ class TabMT(nn.Module):
         self.mask_vec = nn.Parameter(standard_norm.sample((1, self.width)))
         self.positional_encoding = nn.Parameter(position_norm.sample((num_feat, self.width)))
     
-    def embed(self, x, mask):
+    def embed(self, x, mask):        
         out = self.mask_vec.repeat(x.shape[0], x.shape[1], 1)
+        
         for ft in range(x.shape[1]):
-            col_mask = (mask[ft] == 0) & (x[:, ft] != -1)
+            col_mask = (mask[:, ft] == 0) & (x[:, ft] != -1)
             out[col_mask, ft] = self.Embeddings[ft](x[col_mask, ft])
         return out
 
-    def linear(self, x, i):        
-        return [self.LinearLayers[ft](x[:, ft], self.Embeddings[ft].weight()) for ft in i]
+    def linear(self, x):        
+        return [self.LinearLayers[ft](x[:, ft], self.Embeddings[ft].weight()) for ft in range(x.shape[1])]
 
     def forward(self, x):        
-        mask = torch.rand(x.shape[1]).round().int().to(x.device)
-        mask[self.never_mask] = 0
-        
-        i = torch.where(mask == 1)[0].tolist()
-        
+        mask = torch.rand(x.size(), device=x.device).round().int()
         y = self.embed(x, mask)
         y = y + self.positional_encoding
         y = self.encoder(y)
-        y = self.linear(y, i)
-        return y, i
+        y = self.linear(y)
+        return y, mask
 
     def gen_batch(self, x):
         for i in torch.randperm(x.shape[1]):
-            y = self.embed(x, torch.ones(x.shape[1]))
+            y = self.embed(x, torch.zeros(x.size(), device=x.device))
+            
             y = y + self.positional_encoding
             y = self.encoder(y)
-            y = self.linear(y, [i])
-    
-            missing = torch.where(x[:, i] == -1)[0]
-            x[missing, i] = y[0][missing].argmax(dim=1)
-        
+            y = self.LinearLayers[i](y[:, i], self.Embeddings[i].weight())
+            
+            x[x[:, i] == -1, i] = y[x[:, i] == -1].argmax(dim=1)        
         return x
