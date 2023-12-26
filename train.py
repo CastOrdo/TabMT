@@ -12,6 +12,8 @@ import wandb
 import tqdm
 import argparse
 
+from collections import Counter
+
 parser = argparse.ArgumentParser()
 
 parser.add_argument('--data_csv', type=str, nargs='+', required=True)
@@ -79,6 +81,15 @@ class TrainingMetrics():
         self.record[i][1].extend(t)
         return None
     
+    def sanity_check(self, cat_dicts, clstr_cntrs):
+        for ft in range(len(self.record)):
+            num_unique_train = len(list(set(self.record[ft][1])))
+            num_unique = len(cat_dicts[ft].keys()) if (cat_dicts[ft] != None) else len(clstr_cntrs[ft])
+            
+            if (num_unique != num_unique_train):
+                print(f'WARNING! Only {num_unique_train} / {num_unique} values of feature {ft} in the set.')
+        return None
+    
     def compute(self): 
         macroF1 = np.array([f1_score(self.record[i][1], self.record[i][0], average='macro') for i in range(len(self.record)) if len(self.record[i][0]) > 0])
         accuracies = np.array([accuracy_score(self.record[i][1], self.record[i][0]) for i in range(len(self.record)) if len(self.record[i][0]) > 0])
@@ -117,7 +128,8 @@ def train(dataloader):
             total_loss += loss.item()
             
             tepoch.set_postfix(loss=total_loss / item_count, accuracy=total_correct / item_count, num_feats=len(y))
-
+    
+    tracker.sanity_check(cat_dicts=cat_dicts, clstr_cntrs=occs)
     macroF1, accuracies = tracker.compute()
         
     return total_loss / item_count, macroF1, accuracies
@@ -151,7 +163,8 @@ def validate(dataloader):
                 total_loss += loss.item()
                 
                 tepoch.set_postfix(loss=total_loss / item_count, accuracy=total_correct / item_count, num_feats=len(y))
-            
+        
+        tracker.sanity_check(cat_dicts=cat_dicts, clstr_cntrs=occs)
         macroF1, accuracies = tracker.compute()
         
         return total_loss / item_count, macroF1, accuracies

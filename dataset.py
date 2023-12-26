@@ -129,7 +129,8 @@ class UNSW_NB15(Dataset):
     def cure_frame(self, frame, dtypes):
         numericals = np.where(np.array(dtypes) != 'nominal')[0]
         for idx in tqdm(numericals, desc="Curing Data"):
-            frame.iloc[:, idx] = pd.to_numeric(frame.iloc[:, idx], errors='coerce') 
+            frame.iloc[:, idx] = pd.to_numeric(frame.iloc[:, idx], errors='coerce')
+            frame.iloc[:, idx] = frame.iloc[:, idx] ** (1/4)
         return frame
 
     def process_data(self, raw_frame, dtypes, names):
