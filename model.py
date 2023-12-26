@@ -87,13 +87,12 @@ class TabMT(nn.Module):
     def linear(self, x):        
         return [self.LinearLayers[ft](x[:, ft], self.Embeddings[ft].weight()) for ft in range(x.shape[1])]
 
-    def forward(self, x):        
-        mask = torch.rand(x.size(), device=x.device).round().int()
+    def forward(self, x, mask):        
         y = self.embed(x, mask)
         y = y + self.positional_encoding
         y = self.encoder(y)
         y = self.linear(y)
-        return y, mask
+        return y
 
     def gen_batch(self, x):
         for i in torch.randperm(x.shape[1]):

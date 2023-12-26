@@ -1,20 +1,20 @@
 from dataset import UNSW_NB15
-from model import TabMT, OrderedEmbedding
+from model import TabMT
 
-# test
-
+import numpy as np
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader
-from torch.utils.data import SubsetRandomSampler
+from torch.utils.data import DataLoader, SubsetRandomSampler, Sampler
 
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import f1_score, accuracy_score
-import numpy as np
 
+import math
 import wandb
 import tqdm
 import argparse
+
+import time
 
 parser = argparse.ArgumentParser()
 
@@ -38,6 +38,8 @@ parser.add_argument('--savename', type=str, required=True)
 parser.add_argument('--wandb', type=int, required=True)
 
 parser.add_argument('--train_size', type=float, required=True)
+parser.add_argument('--train_rows', type=int, required=True)
+parser.add_argument('--replacement', type=bool, required=True)
 
 args = parser.parse_args()
 
@@ -48,8 +50,57 @@ never_mask = dataset.get_label_idx()
 labels = dataset.get_label_column()
 num_ft = len(occs)
 
+class ActiveSampler(Sampler):
+    def __init__(self, frame, exclude, replacement, num_samples):
+        self.replacement = replacement
+        self.exclude = exclude
+        self.num_samples = num_samples
+        
+        self.probs = frame.copy()
+        for ft in range(len(self.probs.columns)):
+            self.probs.iloc[:, ft] = self.probs.iloc[:, ft].map(self.log_prob(self.probs.iloc[:, ft]))
+        
+        self.probs = self.probs.to_numpy(dtype=np.int8)
+            
+    def __iter__(self):
+        batch_size = 10000
+        batches = math.ceil(self.masks.shape[0] / batch_size)
+        functional_probs = self.probs
+        samples = []
+        for batch in tqdm.tqdm(range(batches), desc='Preparing Sampler'):
+            
+            fts = torch.multinomial(self.masks[:batch_size], num_samples=1, replacement=True)
+
+            w = functional_probs[:, fts.squeeze()]
+            w = torch.from_numpy(w).transpose(0, 1).float()
+            
+            batch_samples = torch.multinomial(w, num_samples=1, replacement=self.replacement)
+            batch_samples = batch_samples.squeeze().tolist()
+            
+            samples.extend(batch_samples)
+            if not self.replacement:
+                functional_probs[batch_samples, :] = 0
+                
+        yield from iter(samples)
+        
+    def __len__(self):
+        return self.num_samples
+    
+    def log_prob(self, col):
+        return dict(np.log(col.value_counts(normalize=True)).abs())
+    
+    def set_masks(self, masks):
+        self.masks = masks.cpu().float()
+        return None
+
 train_idx, test_idx= train_test_split(np.arange(len(labels)), test_size=1-args.train_size, stratify=labels, shuffle=True, random_state=42)
-train_sampler, test_sampler = SubsetRandomSampler(train_idx), SubsetRandomSampler(test_idx)
+
+train_sampler = ActiveSampler(frame=dataset.get_processed_frame(), 
+                              exclude=test_idx, 
+                              replacement=args.replacement,
+                              num_samples=args.train_rows)
+test_sampler = SubsetRandomSampler(test_idx)
+
 train_loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False, sampler=train_sampler)
 test_loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False, sampler=test_sampler)
 
@@ -65,7 +116,6 @@ model = TabMT(width=args.width,
               tu=[args.tu for i in range(len(occs) + len(cat_dicts))], 
               cat_dicts=cat_dicts,
               num_feat=num_ft).to(device)
-# model = nn.DataParallel(model)
 
 criterion = nn.CrossEntropyLoss(ignore_index=-1)
 optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate)
@@ -87,7 +137,7 @@ class TrainingMetrics():
         accuracies = np.array([accuracy_score(self.record[i][1], self.record[i][0]) for i in range(len(self.record)) if len(self.record[i][0]) > 0])
         return macroF1, accuracies
 
-def train(dataloader):
+def train(dataloader, masks):
     tracker = TrainingMetrics(num_ft)
     total_loss = total_correct = item_count = 0
     with tqdm.tqdm(dataloader, unit="batch") as tepoch:
@@ -96,8 +146,9 @@ def train(dataloader):
 
             batch = batch.to(device)
             optimizer.zero_grad()
-
-            y, mask = model(batch)
+            
+            mask = masks[:len(batch)]
+            y = model(batch, mask)
 
             loss = 0
             for ft, y_ft in enumerate(y):
@@ -118,6 +169,7 @@ def train(dataloader):
             optimizer.step()
 
             total_loss += loss.item()
+            masks = masks[len(batch):]
             
             tepoch.set_postfix(loss=total_loss / item_count, accuracy=total_correct / item_count, num_feats=len(y))
 
@@ -125,7 +177,7 @@ def train(dataloader):
         
     return total_loss / item_count, macroF1, accuracies
 
-def validate(dataloader):
+def validate(dataloader, masks):
     with torch.no_grad():
         tracker = TrainingMetrics(num_ft)
         total_loss = total_correct = item_count = 0
@@ -134,7 +186,8 @@ def validate(dataloader):
                 tepoch.set_description(f"Validation Epoch {epoch}") 
     
                 batch = batch.to(device)
-                y, mask = model(batch)
+                mask = masks[:len(batch)]
+                y = model(batch, mask)
     
                 loss = 0
                 for ft, y_ft in enumerate(y):
@@ -152,6 +205,7 @@ def validate(dataloader):
                         item_count += pred.shape[0]
         
                 total_loss += loss.item()
+                masks = masks[len(batch):]
                 
                 tepoch.set_postfix(loss=total_loss / item_count, accuracy=total_correct / item_count, num_feats=len(y))
             
@@ -166,18 +220,27 @@ if (args.wandb):
                config=vars(args),
                name=args.savename)
 
+import time
+    
 save_path = 'saved_models/' + args.savename
 personal_best = 1000
 for epoch in range(args.epochs):
     model.train(True)
-    t_loss, t_macroF1, t_accuracies = train(train_loader)
+    
+    start_time = time.time()
+    train_masks = torch.rand((args.train_rows, num_ft), device=device).round().int()
+    train_sampler.set_masks(train_masks)
+    end_time = time.time()
+    print('Created masks in',end_time-start_time," seconds.")
+    
+    t_loss, t_macroF1, t_accuracies = train(train_loader, train_masks)
+    
     print(f't_accuracy: {t_accuracies.mean()}, t_F1: {t_macroF1.mean()}')
     
     model.eval()
+
     
-    test_input = torch.zeros((5, num_ft), dtype=torch.long, device=device) - 1
-    print(model.gen_batch(test_input))
-    
+    # val_masks = torch.rand((args.train_rows, num_ft), device=device).round().int()
     v_loss, v_macroF1, v_accuracies = validate(test_loader)
     print(f't_accuracy: {v_accuracies.mean()}, t_F1: {v_macroF1.mean()}')
     
