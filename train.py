@@ -4,8 +4,9 @@ from model import TabMT
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader, Subset
 
+from iterstrat.ml_stratifiers import MultilabelStratifiedShuffleSplit
 from sklearn.metrics import f1_score, accuracy_score
 
 import wandb
@@ -35,8 +36,8 @@ parser.add_argument('--batch_size', type=int, required=True)
 parser.add_argument('--savename', type=str, required=True)
 parser.add_argument('--wandb', type=int, required=True)
 
-parser.add_argument('--distilled_size', type=int, required=True)
-parser.add_argument('--replacement', type=bool, required=True)
+# parser.add_argument('--distilled_size', type=int, required=True)
+# parser.add_argument('--replacement', type=bool, required=True)
 
 parser.add_argument('--train_perc', type=float, required=True)
 
@@ -45,16 +46,21 @@ args = parser.parse_args()
 dataset = UNSW_NB15(data_csv=args.data_csv, 
                     dtype_xlsx=args.dtype_xlsx, 
                     num_clusters=args.num_clusters, 
-                    drop=['label', 'dsport', 'sport'])
+                    drop=['label', 'dsport', 'sport'],
+                    never_mask=['attack_cat', 'cvss'])
+
+msss = MultilabelStratifiedShuffleSplit(n_splits=1, test_size=1-args.train_perc, random_state=0)
+X = np.arange(len(dataset))
+y = dataset.get_frame()
+train_idx, test_idx = next(msss.split(X, y))
+
+train_loader = DataLoader(Subset(dataset, train_idx), batch_size=args.batch_size, shuffle=True)
+test_loader = DataLoader(Subset(dataset, test_idx), batch_size=args.batch_size, shuffle=False)
+
 occs, cat_dicts = dataset.get_cluster_centers(), dataset.get_categorical_dicts()
 num_ft = len(occs)
 
-dataset = UNSW_NB15_Distilled(raw_dataset=dataset, size=args.distilled_size, replacement=args.replacement)
-train_set, test_set = random_split(dataset, lengths=[args.train_perc, 1-args.train_perc])
-train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True)
-test_loader = DataLoader(test_set, batch_size=args.batch_size, shuffle=False)
-
-device = torch.device(0 if torch.cuda.is_available() else 'cpu')
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 model = TabMT(width=args.width, 
               depth=args.depth, 
@@ -79,15 +85,6 @@ class TrainingMetrics():
         
         self.record[i][0].extend(p)
         self.record[i][1].extend(t)
-        return None
-    
-    def sanity_check(self, cat_dicts, clstr_cntrs):
-        for ft in range(len(self.record)):
-            num_unique_train = len(list(set(self.record[ft][1])))
-            num_unique = len(cat_dicts[ft].keys()) if (cat_dicts[ft] != None) else len(clstr_cntrs[ft])
-            
-            if (num_unique != num_unique_train):
-                print(f'WARNING! Only {num_unique_train} / {num_unique} values of feature {ft} in the set.')
         return None
     
     def compute(self): 
@@ -129,7 +126,6 @@ def train(dataloader):
             
             tepoch.set_postfix(loss=total_loss / item_count, accuracy=total_correct / item_count, num_feats=len(y))
     
-    tracker.sanity_check(cat_dicts=cat_dicts, clstr_cntrs=occs)
     macroF1, accuracies = tracker.compute()
         
     return total_loss / item_count, macroF1, accuracies
@@ -164,7 +160,6 @@ def validate(dataloader):
                 
                 tepoch.set_postfix(loss=total_loss / item_count, accuracy=total_correct / item_count, num_feats=len(y))
         
-        tracker.sanity_check(cat_dicts=cat_dicts, clstr_cntrs=occs)
         macroF1, accuracies = tracker.compute()
         
         return total_loss / item_count, macroF1, accuracies
@@ -186,7 +181,7 @@ for epoch in range(args.epochs):
     model.eval()
 
     v_loss, v_macroF1, v_accuracies = validate(test_loader)
-    print(f't_accuracy: {v_accuracies.mean()}, t_F1: {v_macroF1.mean()}')
+    print(f'v_accuracy: {v_accuracies.mean()}, v_F1: {v_macroF1.mean()}')
     
     if (v_loss < personal_best):
         personal_best = v_loss
