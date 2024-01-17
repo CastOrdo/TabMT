@@ -8,6 +8,8 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 
 from modules.dataset import stratified_sample
 
+from modules.evaluation import compute_catboost_utility
+
 import wandb
 import tqdm
 import math
@@ -63,10 +65,6 @@ def fit(model,
     
     global optimizer, scheduler, criterion, epoch
     
-    if (save_to_wandb):
-        wandb.login()
-        wandb.init(project='TabMT', config=locals(), name=savename)
-    
     frame = dataset.get_frame()
     train_idx = stratified_sample(y=frame[target], lengths=[train_size])[0]
     train_loader = DataLoader(Subset(dataset, train_idx), batch_size=batch_size, shuffle=True)
@@ -83,6 +81,18 @@ def fit(model,
     model.train(True)
     for epoch in range(epochs):
         t_loss, t_accuracy = train(train_loader, model)
+        
+        model.eval()
+        results = compute_catboost_utility(model=model, 
+                                           frame=dataset.get_frame(), 
+                                           target_name='cvss', 
+                                           names=dataset.names, 
+                                           dtypes=dataset.dtypes, 
+                                           encoder_list=dataset.encoder_list, 
+                                           label_idx=dataset.label_idx, 
+                                           train_size=100000, 
+                                           test_size=100000)
+        print(f'{results[1]}')
         
         if t_loss < lowest_loss:
             lowest_loss = t_loss

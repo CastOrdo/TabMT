@@ -8,6 +8,8 @@ from catboost import CatBoostClassifier
 from catboost.metrics import F1
 from modules.dataset import decode_output, stratified_sample
 
+from imblearn.metrics import geometric_mean_score
+
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 def compute_catboost_utility(model, frame, target_name, names, dtypes, encoder_list, label_idx, train_size, test_size):
@@ -56,6 +58,8 @@ def compute_catboost_utility(model, frame, target_name, names, dtypes, encoder_l
     syn_macrof1 = f1_score(real_test_y, predictions, average='macro')
     syn_weightedf1 = f1_score(real_test_y, predictions, average='weighted')
     syn_accuracy = accuracy_score(real_test_y, predictions)
+    syn_macro_gmean = geometric_mean_score(real_test_y, predictions, average='macro')
+    syn_weighted_gmean = geometric_mean_score(real_test_y, predictions, average='weighted')
     
     classifier.fit(
         real_train_X, real_train_y, 
@@ -67,5 +71,12 @@ def compute_catboost_utility(model, frame, target_name, names, dtypes, encoder_l
     predictions = classifier.predict(real_test_X)
     re_macrof1 = f1_score(real_test_y, predictions, average='macro')
     re_weightedf1 = f1_score(real_test_y, predictions, average='weighted')
-    re_accuracy = accuracy_score(real_test_y, predictions)    
-    return [re_accuracy - syn_accuracy, re_macrof1 - syn_macrof1, re_weightedf1 - syn_weightedf1]
+    re_accuracy = accuracy_score(real_test_y, predictions)
+    re_macro_gmean = geometric_mean_score(real_test_y, predictions, average='macro')
+    re_weighted_gmean = geometric_mean_score(real_test_y, predictions, average='weighted')
+    
+    return [re_accuracy - syn_accuracy, 
+            re_macrof1 - syn_macrof1, 
+            re_weightedf1 - syn_weightedf1, 
+            re_macro_gmean - syn_macro_gmean, 
+            re_weighted_gmean - syn_weighted_gmean]
