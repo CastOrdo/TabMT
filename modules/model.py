@@ -99,11 +99,12 @@ class TabMT(nn.Module):
         y = self.encoder(y)
         y = self.linear(y)
         return y
-
+    
     def gen_data(self, x, batch_size):
-        for row in tqdm(torch.split(x, batch_size, dim=0), desc='Generating Data'):        
+        for row in tqdm(torch.split(x, batch_size, dim=0), desc='Generating Data'):
             for i in torch.randperm(self.num_ft):
-                y = self.embed(row, torch.zeros(row.size(), device=x.device))
+                mask = torch.zeros(row.size(), device=x.device)
+                y = self.embed(row, mask)
 
                 y = y + self.positional_encoding
                 y = self.encoder(y)

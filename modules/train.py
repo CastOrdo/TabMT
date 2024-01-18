@@ -14,8 +14,15 @@ import wandb
 import tqdm
 import math
 
-g = torch.Generator().manual_seed(42)
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+g = torch.Generator()
+g.manual_seed(42)
+
+def seed_worker(worker_id):
+    worker_seed = torch.initial_seed() % 2**32
+    numpy.random.seed(worker_seed)
+    random.seed(worker_seed)
 
 def train(dataloader, model):
     total_loss = total_correct = item_count = 0
@@ -67,32 +74,25 @@ def fit(model,
     
     frame = dataset.get_frame()
     train_idx = stratified_sample(y=frame[target], lengths=[train_size])[0]
-    train_loader = DataLoader(Subset(dataset, train_idx), batch_size=batch_size, shuffle=True)
+    train_loader = DataLoader(Subset(dataset, train_idx), 
+                              batch_size=batch_size, 
+                              shuffle=True, 
+                              generator=g,
+                              worker_init_fn=seed_worker)
     
     criterion = nn.CrossEntropyLoss(ignore_index=-1)
     optimizer = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     steps = math.ceil(len(train_idx) / batch_size) * epochs
     scheduler = CosineAnnealingLR(optimizer, steps)
     
+    model = model.to(device)
+    model.train(True)
+    
     save_path = 'saved_models/' + savename
     lowest_loss = 10000
     
-    model = model.to(device)
-    model.train(True)
     for epoch in range(epochs):
         t_loss, t_accuracy = train(train_loader, model)
-        
-        model.eval()
-        results = compute_catboost_utility(model=model, 
-                                           frame=dataset.get_frame(), 
-                                           target_name='cvss', 
-                                           names=dataset.names, 
-                                           dtypes=dataset.dtypes, 
-                                           encoder_list=dataset.encoder_list, 
-                                           label_idx=dataset.label_idx, 
-                                           train_size=100000, 
-                                           test_size=100000)
-        print(f'{results[1]}')
         
         if t_loss < lowest_loss:
             lowest_loss = t_loss

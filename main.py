@@ -3,8 +3,13 @@ from modules.model import TabMT
 from modules.train import fit
 from modules.evaluation import compute_catboost_utility
 import numpy as np
-
+import torch
+import random
 import wandb
+
+np.random.seed(0)
+torch.manual_seed(0)
+random.seed(0)
 
 from argparse import ArgumentParser
 parser = ArgumentParser()
@@ -25,7 +30,7 @@ parser.add_argument('--save_to_wandb', type=int, required=True)
 args = parser.parse_args()
 
 train_size = 50000
-utility_train_size = utility_test_size = 100000
+utility_train_size = utility_test_size = 50000
 
 data_csv = ['data/UNSW_NB_15_1_withCVSS_V2.csv', 
             'data/UNSW_NB_15_2_withCVSS_V2.csv',
@@ -54,24 +59,28 @@ if args.save_to_wandb:
     wandb.login()
     wandb.init(project='TabMT', config=vars(args), name=args.savename)
 
-model = fit(model=model, 
-            dataset=dataset, 
-            target='cvss',
-            num_clusters=args.num_clusters, 
-            train_size=train_size, 
-            lr=args.lr, 
-            epochs=args.epochs, 
-            batch_size=args.batch_size, 
-            weight_decay=args.weight_decay,
-            save_to_wandb=args.save_to_wandb, 
-            savename=args.savename)
+# model = fit(model=model, 
+#             dataset=dataset, 
+#             target='cvss',
+#             num_clusters=args.num_clusters, 
+#             train_size=train_size, 
+#             lr=args.lr, 
+#             epochs=args.epochs, 
+#             batch_size=args.batch_size, 
+#             weight_decay=args.weight_decay,
+#             save_to_wandb=args.save_to_wandb, 
+#             savename=args.savename)
+
+save_path = 'saved_models/baseline_reproducibility'
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+model.load_state_dict(torch.load(save_path))
+model = model.to(device)
+
+print('Starting Evaluation!')
 
 model.eval()
-
-num_exp = 5
-avg_acc,avg_mf1,avg_wf1,avg_mgm,avg_wgm = np.zeros(num_exp),np.zeros(num_exp),np.zeros(num_exp),np.zeros(num_exp),np.zeros(num_exp)
-for exp in range(num_exp):
-    results = compute_catboost_utility(model=model, 
+num_exp, trials_per_exp = 5, 5
+means, stds = compute_catboost_utility(model=model, 
                                        frame=dataset.get_frame(), 
                                        target_name='cvss', 
                                        names=dataset.names, 
@@ -79,27 +88,22 @@ for exp in range(num_exp):
                                        encoder_list=encoder_list, 
                                        label_idx=dataset.label_idx, 
                                        train_size=utility_train_size, 
-                                       test_size=utility_test_size)
-    
-    avg_acc[exp], avg_mf1[exp], avg_wf1[exp], avg_mgm[exp], avg_wgm[exp] = results[0], results[1], results[2], results[3], results[4]
-    
-std_acc, std_mf1, std_wf1, std_mgm, std_wgm = np.std(avg_acc), np.std(avg_mf1), np.std(avg_wf1), np.std(avg_mgm), np.std(avg_wgm)
-avg_acc, avg_mf1, avg_wf1, avg_mgm, avg_wgm = np.mean(avg_acc), np.mean(avg_mf1), np.mean(avg_wf1), np.mean(avg_mgm), np.mean(avg_wgm)
+                                       test_size=utility_test_size,
+                                       num_trials=trials_per_exp, 
+                                       num_exp=num_exp)
 
-print(f'Accuracy: mean={avg_acc} std={std_acc}.')
-print(f'Macro F1: mean={avg_mf1} std={std_mf1}.')
-print(f'Weighted F1: mean={avg_wf1} std={std_wf1}.')
-print(f'Macro GM: mean={avg_mgm} std={std_mgm}.')
-print(f'Weighted GM: mean={avg_wgm} std={std_wgm}.')
+results = {"mean_accuracy_diff": means[0],
+           "mean_macroF1_diff":means[1],
+           "mean_weightedF1_diff":means[2],
+           "mean_macroGM_diff":means[3],
+           "mean_weightedGM_diff":means[4],
+           "std_accuracy_diff": stds[0],
+           "std_macroF1_diff":stds[1],
+           "std_weightedF1_diff":stds[2],
+           "std_macroGM_diff":stds[3],
+           "std_weightedGM_diff":stds[4]}
+
+print(results)
 
 if args.save_to_wandb:
-    wandb.log({"mean_accuracy_difference": avg_acc,
-               "std_accuracy_difference": std_acc,
-               "mean_macroF1_difference":avg_mf1,
-               "std_macroF1_difference":std_mf1,
-               "mean_weightedF1_difference":avg_wf1,
-               "std_weightedF1_difference":std_wf1,
-               "mean_macroGM_difference":avg_mgm,
-               "std_macroGM_difference":std_mgm,
-               "mean_weightedGM_difference":avg_wgm,
-               "std_weightedGM_difference":std_wgm})
+    wandb.log(results)
