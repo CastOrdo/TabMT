@@ -13,10 +13,14 @@ from imblearn.metrics import geometric_mean_score
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 def catboost_trial(train_X, train_y, test_X, test_y, cat_features):
+    seed = torch.randint(high=100000, size=(1,))
+    seed = int(seed)
+    
     classifier = CatBoostClassifier(loss_function='MultiClass',
-                                eval_metric='TotalF1',
-                                iterations=100,
-                                use_best_model=True)
+                                    eval_metric='TotalF1',
+                                    iterations=100,
+                                    use_best_model=True,
+                                    random_seed=seed)
     classifier.fit(
         train_X, train_y, 
         eval_set=(test_X, test_y),
@@ -74,14 +78,9 @@ def compute_catboost_utility(model, frame, target_name, names, dtypes, encoder_l
             trial_results.append(real_results - fake_results)
             
         trial_results = np.stack(trial_results)
-        print(trial_results)
-        
         trial_results = np.mean(trial_results, axis=0)
-        print(trial_results)
         
         avg_results.append(trial_results)
-    
-    print(avg_results)
     
     avg_results = np.stack(avg_results)
     means = np.mean(avg_results, axis=0)

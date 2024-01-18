@@ -59,22 +59,17 @@ if args.save_to_wandb:
     wandb.login()
     wandb.init(project='TabMT', config=vars(args), name=args.savename)
 
-# model = fit(model=model, 
-#             dataset=dataset, 
-#             target='cvss',
-#             num_clusters=args.num_clusters, 
-#             train_size=train_size, 
-#             lr=args.lr, 
-#             epochs=args.epochs, 
-#             batch_size=args.batch_size, 
-#             weight_decay=args.weight_decay,
-#             save_to_wandb=args.save_to_wandb, 
-#             savename=args.savename)
-
-save_path = 'saved_models/baseline_reproducibility'
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-model.load_state_dict(torch.load(save_path))
-model = model.to(device)
+model = fit(model=model, 
+            dataset=dataset, 
+            target='cvss',
+            num_clusters=args.num_clusters, 
+            train_size=train_size, 
+            lr=args.lr, 
+            epochs=args.epochs, 
+            batch_size=args.batch_size, 
+            weight_decay=args.weight_decay,
+            save_to_wandb=args.save_to_wandb, 
+            savename=args.savename)
 
 print('Starting Evaluation!')
 

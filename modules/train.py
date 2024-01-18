@@ -66,9 +66,9 @@ def fit(model,
         lr, 
         epochs, 
         batch_size, 
-        weight_decay, 
-        save_to_wandb, 
-        savename):
+        weight_decay,  
+        savename='optuna', 
+        save_to_wandb=0):
     
     global optimizer, scheduler, criterion, epoch
     
