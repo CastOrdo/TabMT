@@ -52,14 +52,14 @@ class DynamicLinear(nn.Module):
         return logits
 
 class TabMT(nn.Module):
-    def __init__(self, width, depth, heads, dropout, tu, encoder_list):
+    def __init__(self, width, depth, heads, encoder_list, dropout=0, tu=None):
         super(TabMT, self).__init__()
         self.width = width
         self.depth = depth
         self.heads = heads
         self.dropout = dropout
-        self.tu = tu
         self.num_ft = len(encoder_list)
+        self.tu = tu if tu != None else [1 for i in range(self.num_ft)]
 
         self.Embeddings, self.LinearLayers = nn.ModuleList(), nn.ModuleList()
         for idx, encoder in enumerate(encoder_list):

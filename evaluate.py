@@ -2,6 +2,23 @@ from modules.evaluation import compute_catboost_utility
 from modules.dataset import UNSW_NB15
 from modules.model import TabMT
 import torch
+import numpy as np
+import random
+
+np.random.seed(0)
+torch.manual_seed(0)
+random.seed(0)
+
+from argparse import ArgumentParser
+parser = ArgumentParser()
+parser.add_argument('--num_clusters', type=int, required=True)
+parser.add_argument('--width', type=int, required=True)
+parser.add_argument('--depth', type=int, required=True)
+parser.add_argument('--heads', type=int, required=True)
+parser.add_argument('--savename', type=str, required=True)
+args = parser.parse_args()
+
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 data_csv = ['data/UNSW_NB_15_1_withCVSS_V2.csv', 
             'data/UNSW_NB_15_2_withCVSS_V2.csv',
@@ -15,20 +32,15 @@ dataset = UNSW_NB15(data_csv=data_csv,
                     dtype_xlsx=dtype_xlsx, 
                     dropped_columns=dropped_columns,
                     labels=labels,
-                    n_clusters=200)
+                    n_clusters=args.num_clusters)
 
 encoder_list = dataset.get_encoder_list()
-tu = [1 for i in range(len(encoder_list))]
+model = TabMT(width=args.width, depth=args.depth, heads=args.heads, 
+              encoder_list=encoder_list)
 
-model = TabMT(width=352, 
-              depth=8, 
-              heads=4, 
-              encoder_list=encoder_list,
-              dropout=0.3, 
-              tu=tu)
-
-save_path = 'saved_models/optimized'
+save_path = f'saved_models/{args.savename}'
 model.load_state_dict(torch.load(save_path))
+model.to(device)
 
 model.eval()
 
@@ -47,5 +59,5 @@ means, stds = compute_catboost_utility(model=model,
                                        num_exp=num_exp, 
                                        num_trials=num_trials)
 
-print(means)
-print(stds)
+print(f'AVG: {means}')
+print(f'STD: {stds}')
