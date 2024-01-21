@@ -57,7 +57,7 @@ def compute_catboost_utility(model, frame, target_name, names, dtypes, encoder_l
     cat_features = np.where((dtypes=='binary') | (dtypes=='nominal'))[0]
     cat_features = list(set(cat_features) - set(label_idx))
     
-    avg_results = []
+    seeds, avg_results = torch.randint(high=1000000, size=(num_trials,)), []
     for exp in range(num_exp):
         gen_in_hat = torch.clone(gen_in)
         synthetics = model.gen_data(gen_in_hat, batch_size=512)
@@ -68,9 +68,7 @@ def compute_catboost_utility(model, frame, target_name, names, dtypes, encoder_l
     
         trial_results = []
         for trial in range(num_trials):
-            seed = torch.randint(high=100000, size=(1,))
-            seed = int(seed)
-
+            seed = int(seeds[trial])
             real_results = catboost_trial(real_train_X, real_train_y, 
                                           real_test_X, real_test_y, 
                                           cat_features, seed)

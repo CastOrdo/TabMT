@@ -12,10 +12,6 @@ from time import strftime
 import warnings
 warnings.filterwarnings("ignore")
 
-np.random.seed(0)
-torch.manual_seed(0)
-random.seed(0)
-
 data_csv = ['data/UNSW_NB_15_1_withCVSS_V2.csv', 
             'data/UNSW_NB_15_2_withCVSS_V2.csv',
             'data/UNSW_NB_15_3_withCVSS_V2.csv',
@@ -28,8 +24,16 @@ train_size = utility_train_size = utility_test_size = 50000
 
 model = None
 
+def set_seed():
+    np.random.seed(0)
+    torch.manual_seed(0)
+    random.seed(0)
+    return None
+
 def objective(trial):
     global model
+
+    set_seed()
     
     n_clusters = trial.suggest_int('n_clusters', low=10, high=200, step=10)
     width = trial.suggest_int('width', low=16, high=512, step=16)
