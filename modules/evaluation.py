@@ -12,10 +12,7 @@ from imblearn.metrics import geometric_mean_score
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-def catboost_trial(train_X, train_y, test_X, test_y, cat_features):
-    seed = torch.randint(high=100000, size=(1,))
-    seed = int(seed)
-    
+def catboost_trial(train_X, train_y, test_X, test_y, cat_features, seed):    
     classifier = CatBoostClassifier(loss_function='MultiClass',
                                     eval_metric='TotalF1',
                                     iterations=100,
@@ -60,9 +57,6 @@ def compute_catboost_utility(model, frame, target_name, names, dtypes, encoder_l
     cat_features = np.where((dtypes=='binary') | (dtypes=='nominal'))[0]
     cat_features = list(set(cat_features) - set(label_idx))
     
-    real_results = catboost_trial(real_train_X, real_train_y, real_test_X, real_test_y, cat_features)
-    print(f'Performance of the Classifier Trained on Real Data: {real_results}.')
-    
     avg_results = []
     for exp in range(num_exp):
         gen_in_hat = torch.clone(gen_in)
@@ -73,8 +67,16 @@ def compute_catboost_utility(model, frame, target_name, names, dtypes, encoder_l
         syn_X = synthetics.drop(names[label_idx], axis=1)
     
         trial_results = []
-        for trial in range(num_trials):        
-            fake_results = catboost_trial(syn_X, syn_y, real_test_X, real_test_y, cat_features)
+        for trial in range(num_trials):
+            seed = torch.randint(high=100000, size=(1,))
+            seed = int(seed)
+
+            real_results = catboost_trial(real_train_X, real_train_y, 
+                                          real_test_X, real_test_y, 
+                                          cat_features, seed)
+            fake_results = catboost_trial(syn_X, syn_y, 
+                                          real_test_X, real_test_y, 
+                                          cat_features, seed)
             trial_results.append(real_results - fake_results)
             
         trial_results = np.stack(trial_results)

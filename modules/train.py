@@ -26,35 +26,30 @@ def seed_worker(worker_id):
 
 def train(dataloader, model):
     total_loss = total_correct = item_count = 0
-    with tqdm.tqdm(dataloader, unit="batch") as tepoch:
-        for batch in tepoch:
-            tepoch.set_description(f"Train Epoch {epoch}") 
-            
-            rows, mask = batch
-            rows, mask = rows.to(device), mask.to(device)
+    for batch in dataloader:
+        rows, mask = batch
+        rows, mask = rows.to(device), mask.to(device)
 
-            optimizer.zero_grad()
-            
-            y = model(rows, mask)
+        optimizer.zero_grad()
+        
+        y = model(rows, mask)
 
-            loss = 0
-            for ft, y_ft in enumerate(y):
-                m = (mask[:, ft] == 1) & (rows[:, ft] != -1)
-                truth = rows[m, ft]
-                pred = y_ft[m]
+        loss = 0
+        for ft, y_ft in enumerate(y):
+            m = (mask[:, ft] == 1) & (rows[:, ft] != -1)
+            truth = rows[m, ft]
+            pred = y_ft[m]
 
-                if (len(truth) > 0):
-                    loss += criterion(pred, truth.long())
-                    total_correct += sum(pred.argmax(dim=1) == truth).item()
-                    item_count += pred.shape[0]
-            
-            loss.backward()
-            optimizer.step()
-            scheduler.step()
+            if (len(truth) > 0):
+                loss += criterion(pred, truth.long())
+                total_correct += sum(pred.argmax(dim=1) == truth).item()
+                item_count += pred.shape[0]
+        
+        loss.backward()
+        optimizer.step()
+        scheduler.step()
 
-            total_loss += loss.item()
-            
-            tepoch.set_postfix(loss=total_loss / item_count, accuracy=total_correct / item_count)
+        total_loss += loss.item()
         
     return total_loss / item_count, total_correct / item_count
     
@@ -66,8 +61,8 @@ def fit(model,
         lr, 
         epochs, 
         batch_size, 
-        weight_decay,  
-        savename='optuna', 
+        weight_decay,
+        savename, 
         save_to_wandb=0):
     
     global optimizer, scheduler, criterion, epoch
@@ -84,24 +79,29 @@ def fit(model,
     optimizer = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     steps = math.ceil(len(train_idx) / batch_size) * epochs
     scheduler = CosineAnnealingLR(optimizer, steps)
-    
-    model = model.to(device)
-    model.train(True)
-    
-    save_path = 'saved_models/' + savename
-    lowest_loss = 10000
-    
-    for epoch in range(epochs):
-        t_loss, t_accuracy = train(train_loader, model)
-        
-        if t_loss < lowest_loss:
-            lowest_loss = t_loss
-            torch.save(model.state_dict(), save_path)
 
-        if (save_to_wandb):
-            wandb.log({"train_mean_accuracy": t_accuracy,
-                       "train_loss": t_loss,
-                       "epoch":epoch})
+    model = nn.DataParallel(model)
+    model.to(device)
+    model.train(True)
+	
+    save_path = f'saved_models/{savename}'
+    lowest_loss = 10000
+
+    with tqdm.tqdm(range(epochs), desc='Training', unit="epoch") as tepoch:
+        for epoch in tepoch:
+            t_loss, t_accuracy = train(train_loader, model)
+        
+            if t_loss < lowest_loss:
+                lowest_loss = t_loss
+                torch.save(model.state_dict(), save_path)
+    
+            if (save_to_wandb):
+                wandb.log({"train_mean_accuracy": t_accuracy,
+                           "train_loss": t_loss,
+                           "epoch":epoch})
+            
+            tepoch.set_postfix(loss=t_loss, accuracy=t_accuracy)
     
     model.load_state_dict(torch.load(save_path))
+    model = model.module
     return model

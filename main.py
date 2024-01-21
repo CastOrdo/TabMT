@@ -34,6 +34,7 @@ utility_train_size = utility_test_size = 50000
 
 data_csv = ['data/UNSW_NB_15_1_withCVSS_V2.csv', 
             'data/UNSW_NB_15_2_withCVSS_V2.csv',
+            'data/UNSW_NB_15_3_withCVSS_V2.csv',
             'data/UNSW_NB_15_4_withCVSS_V2.csv']
 dtype_xlsx = 'data/NUSW-NB15_features.xlsx'
 dropped_columns = ['label', 'dsport', 'sport']
@@ -74,7 +75,7 @@ model = fit(model=model,
 print('Starting Evaluation!')
 
 model.eval()
-num_exp, trials_per_exp = 5, 5
+num_exp, trials_per_exp = 2, 2
 means, stds = compute_catboost_utility(model=model, 
                                        frame=dataset.get_frame(), 
                                        target_name='cvss', 
