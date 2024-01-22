@@ -1,6 +1,7 @@
 from modules.evaluation import compute_catboost_utility
 from modules.dataset import UNSW_NB15
 from modules.model import TabMT
+import pandas as pd
 import torch
 import numpy as np
 import random
@@ -59,5 +60,9 @@ means, stds = compute_catboost_utility(model=model,
                                        num_exp=num_exp, 
                                        num_trials=num_trials)
 
-print(f'AVG: {means}')
-print(f'STD: {stds}')
+results = pd.DataFrame({'Accuracy': f'{means[0]}+/-{stds[0]}', 
+                        'Macro F1': f'{means[1]}+/-{stds[1]}', 
+                        'Weighted F1': f'{means[2}+/-{stds[2]}', 
+                        'Macro GM': f'{means[3]}+/-{stds[3]}', 
+                        'Weighted GM': f'{means[4]}+/-{stds[4]}'})
+print(results)
