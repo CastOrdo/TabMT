@@ -1,8 +1,9 @@
-from modules.evaluation import compute_catboost_utility
+from modules.evaluation import compute_utility
 from modules.dataset import UNSW_NB15
 from modules.model import TabMT
 import pandas as pd
 import torch
+import torch.nn as nn
 import numpy as np
 import random
 
@@ -40,7 +41,9 @@ model = TabMT(width=args.width, depth=args.depth, heads=args.heads,
               encoder_list=encoder_list)
 
 save_path = f'saved_models/{args.savename}'
+model = nn.DataParallel(model)
 model.load_state_dict(torch.load(save_path))
+model = model.module
 model.to(device)
 
 model.eval()
@@ -48,21 +51,21 @@ model.eval()
 train_size = test_size = 50000
 num_exp, num_trials = 5, 5
 
-means, stds = compute_catboost_utility(model=model, 
-                                       frame=dataset.get_frame(), 
-                                       target_name='cvss', 
-                                       names=dataset.names, 
-                                       dtypes=dataset.dtypes, 
-                                       encoder_list=encoder_list, 
-                                       label_idx=dataset.label_idx, 
-                                       train_size=train_size, 
-                                       test_size=test_size, 
-                                       num_exp=num_exp, 
-                                       num_trials=num_trials)
+means, stds = compute_utility(model=model, 
+                              frame=dataset.get_frame(), 
+                              target_name='cvss', 
+                              names=dataset.names, 
+                              dtypes=dataset.dtypes, 
+                              encoder_list=encoder_list, 
+                              label_idx=dataset.label_idx, 
+                              train_size=train_size, 
+                              test_size=test_size, 
+                              num_exp=num_exp, 
+                              num_trials=num_trials)
 
-results = pd.DataFrame({'Accuracy': f'{means[0]}+/-{stds[0]}', 
-                        'Macro F1': f'{means[1]}+/-{stds[1]}', 
-                        'Weighted F1': f'{means[2}+/-{stds[2]}', 
-                        'Macro GM': f'{means[3]}+/-{stds[3]}', 
-                        'Weighted GM': f'{means[4]}+/-{stds[4]}'})
-print(results)
+# results = pd.DataFrame({'Accuracy': f'{means[0]}+/-{stds[0]}', 
+#                         'Macro F1': f'{means[1]}+/-{stds[1]}', 
+#                         'Weighted F1': f'{means[2}+/-{stds[2]}', 
+#                         'Macro GM': f'{means[3]}+/-{stds[3]}', 
+#                         'Weighted GM': f'{means[4]}+/-{stds[4]}'})
+# print(results)

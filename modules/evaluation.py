@@ -147,12 +147,14 @@ def compute_utility(model, frame, target_name, names, dtypes, encoder_list, labe
                                     num_trials, 
                                     cat_features, 
                                     seeds)
+        print(cat_util)
 
         if weak_ensemble:
             ensemble_util = weak_ensemble_utility(syn_X, syn_y, 
                                                   real_train_X, real_train_y, 
                                                   real_test_X, real_test_y, 
                                                   frame, encoder_list)
+            print(ensemble_util)
         
         results = np.concatenate((cat_util, ensemble_util), axis=0) if weak_ensemble else cat_util
         avg_results.append(results)
