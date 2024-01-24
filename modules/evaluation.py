@@ -2,7 +2,7 @@ import torch
 import numpy as np
 from sklearn.metrics import f1_score, accuracy_score
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import MinMaxScaler
 
 from catboost import CatBoostClassifier
 from catboost.metrics import F1
@@ -10,9 +10,18 @@ from modules.dataset import decode_output, stratified_sample
 
 from imblearn.metrics import geometric_mean_score
 
+from sklearn.neural_network import MLPClassifier
+from sklearn.linear_model import LogisticRegression, LinearRegression, Ridge, Lasso, BayesianRidge
+from sklearn import svm,tree
+from sklearn.ensemble import RandomForestClassifier
+
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
+<<<<<<< HEAD
 def classifier_metrics(truth, predictions):
+=======
+def classifier_metrics(predictions, truth):
+>>>>>>> dc60bd456361d86c60114c1d2115e17db0a0287f
     macrof1 = f1_score(truth, predictions, average='macro')
     weightedf1 = f1_score(truth, predictions, average='weighted')
     accuracy = accuracy_score(truth, predictions)
@@ -34,12 +43,86 @@ def catboost_trial(train_X, train_y, test_X, test_y, cat_features, seed):
     )
 
     predictions = classifier.predict(test_X)
+<<<<<<< HEAD
     results = classifier_metrics(test_y, predictions)
     return results
 
 def preprocess_for_ensemble(frame, reference_frame, encoder_list):
 
 def ensemble_utility(syn, train, test, reference_frame, encoder_list):
+=======
+    metrics = classifier_metrics(predictions, test_y)
+    return metrics
+
+def catboost_utility(syn_X, syn_y, real_train_X, real_train_y, real_test_X, real_test_y, num_trials, cat_features, seeds):
+    trial_results = []
+    for trial in range(num_trials):
+        seed = int(seeds[trial])
+        real_results = catboost_trial(real_train_X, real_train_y, 
+                                      real_test_X, real_test_y, 
+                                      cat_features, seed)
+        fake_results = catboost_trial(syn_X, syn_y, 
+                                      real_test_X, real_test_y, 
+                                      cat_features, seed)
+        trial_results.append(real_results - fake_results)
+        
+    trial_results = np.stack(trial_results)
+    trial_results = np.mean(trial_results, axis=0)
+    return trial_results
+
+def create_weak_ensemble():
+    LogReg = LogisticRegression(random_state=42,max_iter=500) 
+    SVM = svm.SVC(random_state=42,probability=True)
+    DT = tree.DecisionTreeClassifier(random_state=42)
+    RF = RandomForestClassifier(random_state=42)
+    MLP = MLPClassifier(random_state=42,max_iter=100)
+    LinReg = LinearRegression()
+    R = Ridge(random_state=42)
+    L = Lasso(random_state=42)
+    BR = BayesianRidge()
+    return [LogReg, SVM, DT, RF, MLP, LinReg, R, L, BR]
+
+def preprocess_frame(subset_frame, full_frame, encoder_list):
+    subset_frame = subset_frame.copy()
+    
+    fts = np.where(subset_frame.columns == full_frame.columns)[0]
+    for ft in fts:
+        dtype = encoder_list[ft].type_
+        
+        if (dtype == 'continuous'):
+            encoder = MinMaxScaler()
+            encoder.fit(full_frame.iloc[:, ft])
+        else:
+            encoder = encoder_list[ft].le
+
+        subset_frame.iloc[:, ft] = encoder.transform(subset_frame.iloc[:, ft])
+    return subset_frame
+
+def weak_ensemble_utility(syn_X, syn_y, real_train_X, real_train_y, real_test_X, real_test_y, frame, encoder_list):
+    models_real, models_syn = create_weak_ensemble(), create_weak_ensemble()
+    
+    syn_X, syn_y = preprocess_for_ensemble(syn_X, frame, encoder_list), preprocess_for_ensemble(syn_y, frame, encoder_list)
+    real_train_X, real_train_y = preprocess_for_ensemble(real_train_X, frame, encoder_list), preprocess_for_ensemble(real_train_y, frame, encoder_list)
+    real_test_X, real_test_y = preprocess_for_ensemble(real_test_X, frame, encoder_list), preprocess_for_ensemble(real_test_y, frame, encoder_list)
+
+    results = []
+    for i in range(len(models_real)):
+        models_real[i].fit(real_train_X, real_train_y)
+        predictions = models_real[i].predict(real_test_X)
+        real_results = classifier_metrics(predictions, real_test_y)
+
+        models_syn[i].fit(syn_X, syn_y)
+        predictions = models_syn[i].predict(real_test_X)
+        fake_results = classifier_metrics(predictions, real_test_y)
+        
+        results.append(real_results - fake_results)
+    
+    results = np.stack(results)
+    return results
+
+def compute_utility(model, frame, target_name, names, dtypes, encoder_list, label_idx, train_size, test_size, num_exp, num_trials, weak_ensemble=False):
+    names, dtypes, num_ft = np.array(names), np.array(dtypes), len(names)
+>>>>>>> dc60bd456361d86c60114c1d2115e17db0a0287f
     
         
     
@@ -91,21 +174,23 @@ def compute_catboost_utility(model, frame, target_name, names, dtypes, encoder_l
         syn_y = syn[target_name]
         syn_X = syn.drop(names[label_idx], axis=1)
     
-        trial_results = []
-        for trial in range(num_trials):
-            seed = int(seeds[trial])
-            real_results = catboost_trial(real_train_X, real_train_y, 
-                                          real_test_X, real_test_y, 
-                                          cat_features, seed)
-            fake_results = catboost_trial(syn_X, syn_y, 
-                                          real_test_X, real_test_y, 
-                                          cat_features, seed)
-            trial_results.append(real_results - fake_results)
-            
-        trial_results = np.stack(trial_results)
-        trial_results = np.mean(trial_results, axis=0)
+        cat_util = catboost_utility(syn_X, syn_y, 
+                                    real_train_X, real_train_y, 
+                                    real_test_X, real_test_y, 
+                                    num_trials, 
+                                    cat_features, 
+                                    seeds)
+        print(cat_util)
+
+        if weak_ensemble:
+            ensemble_util = weak_ensemble_utility(syn_X, syn_y, 
+                                                  real_train_X, real_train_y, 
+                                                  real_test_X, real_test_y, 
+                                                  frame, encoder_list)
+            print(ensemble_util)
         
-        avg_results.append(trial_results)
+        results = np.concatenate((cat_util, ensemble_util), axis=0) if weak_ensemble else cat_util
+        avg_results.append(results)
     
     avg_results = np.stack(avg_results)
     means = np.mean(avg_results, axis=0)
