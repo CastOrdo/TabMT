@@ -12,21 +12,6 @@ from tqdm import tqdm
 def unique_non_null(frame):
     return frame.dropna().unique()
 
-def validate_split(dataset, idx):
-    frame, num_bad, avg_missing = dataset.get_frame(), 0, 0
-    for ft, name in enumerate(frame.columns):
-        column = frame.iloc[idx, ft]
-        
-        unique_in_idx = len(column.unique())
-        total_unique = len(frame.iloc[:, ft].unique())
-        
-        if (unique_in_idx < total_unique):
-            num_bad += 1
-            avg_missing += total_unique - unique_in_idx
-    
-    avg_missing = avg_missing / num_bad if (num_bad > 0) else 0
-    return num_bad, avg_missing
-
 class ContinuousLabelEncoder(object):
     def __init__(self, kmeans, name):
         self.classes_ = kmeans.cluster_centers_
@@ -52,8 +37,13 @@ class CategoricalLabelEncoder(object):
         y = self.le.inverse_transform(x)
         return y.astype('str')
     
+    def transform(self, x):
+        y = self.le.transform(x)
+        return y.astype('int')
+    
 def decode_output(x, encoder_list):
     x = x.detach().cpu().numpy() if torch.is_tensor(x) else x
+    
     y = pd.DataFrame(x)
     for ft, encoder in enumerate(encoder_list):
         y.iloc[:, ft] = encoder.inverse_transform(y.iloc[:, ft])
@@ -80,12 +70,19 @@ def drop_features(frame, dtypes, names, drop_names):
     return frame, dtypes, names
 
 def cure_frame(frame, dtypes):
-    numericals = np.where(np.array(dtypes) != 'nominal')[0]
-    for idx in tqdm(numericals, desc="Curing Data"):        
-        frame.iloc[:, idx] = pd.to_numeric(frame.iloc[:, idx], errors='coerce')
+    num_ft = len(dtypes)
+    for idx in tqdm(range(num_ft), desc="Curing Data"):        
+        category = dtypes[idx] == 'nominal' or dtypes[idx] == 'binary'
+        if not category:
+            frame.iloc[:, idx] = pd.to_numeric(frame.iloc[:, idx], errors='coerce')
+        # else:
+            # frame.iloc[:, idx] = frame.iloc[:, idx].str.strip()
+            # frame.iloc[:, idx] = frame.iloc[:, idx].str.lower()
     return frame
 
 def process_data(frame, dtypes, names, n_clusters):
+    frame = frame.copy()
+    
     encoder_list = []
     num_ft = len(names)
     for ft in tqdm(range(num_ft), desc='Processing Data'):
@@ -138,13 +135,12 @@ class UNSW_NB15(Dataset):
         
         frame.loc[frame['cvss'] == 'Normal', 'attack_cat'] = 'FalsePositive'
         
-        frame, dtypes, names = drop_features(frame, dtypes, names, dropped_columns)
-        frame = cure_frame(frame, dtypes)
-        frame, encoder_list = process_data(frame, dtypes, names, n_clusters)
+        frame, self.dtypes, self.names = drop_features(frame, dtypes, names, dropped_columns)
+        self.raw_frame = cure_frame(frame, self.dtypes)        
+        self.frame, self.encoder_list = process_data(self.raw_frame, self.dtypes, self.names, n_clusters)
         
         self.num_ft = len(names)
         self.label_idx = [i for i, n in enumerate(names) if n in labels]
-        self.frame, self.dtypes, self.names, self.encoder_list = frame, dtypes, names, encoder_list
         
     def __len__(self):
         return len(self.frame)
@@ -157,8 +153,11 @@ class UNSW_NB15(Dataset):
         mask[self.label_idx] = 0
         return item, mask
     
-    def get_encoder_list(self):
-        return self.encoder_list
+    def get_meta(self):
+        meta = {"raw_frame": self.raw_frame, 
+                "processed_frame": self.frame, 
+                "names": self.names, 
+                "dtypes": self.dtypes, 
+                "encoder_list": self.encoder_list}
+        return meta
     
-    def get_frame(self):
-        return self.frame

@@ -1,7 +1,10 @@
+from modules.dataset import decode_output
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions.normal import Normal
+import numpy as np
 
 from tqdm import tqdm
 
@@ -9,6 +12,29 @@ import datetime as dt
 
 standard_norm = Normal(0, 0.05)
 position_norm = Normal(0, 0.01)
+
+def generate_data(model, class_columns, all_encoders, label_idx, num_frames, device):
+    rows, num_labels = len(class_columns), len(label_idx)
+    condition_vectors = np.empty((rows, num_labels), dtype=int)
+    
+    for i, ft in enumerate(label_idx):
+        condition_vectors[:, i] = all_encoders[ft].transform(class_columns.iloc[:, i])
+   
+    num_col = len(all_encoders)
+    gen_in = torch.ones((rows, num_col), dtype=int) * -1
+    gen_in[:, label_idx] = torch.from_numpy(condition_vectors)
+    
+    synthetic_frames = []
+    model = model.to(device)
+    for i in range(num_frames):
+        gen_in_hat = torch.clone(gen_in)
+        gen_in_hat = gen_in_hat.to(device)
+        
+        synthetic = model.gen_data(gen_in_hat, batch_size=512)
+        synthetic = decode_output(synthetic, all_encoders)
+        
+        synthetic_frames.append(synthetic)
+    return synthetic_frames
 
 class OrderedEmbedding(nn.Module):
     def __init__(self, occ, width):

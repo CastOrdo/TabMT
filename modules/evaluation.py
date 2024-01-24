@@ -12,6 +12,14 @@ from imblearn.metrics import geometric_mean_score
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
+def classifier_metrics(truth, predictions):
+    macrof1 = f1_score(truth, predictions, average='macro')
+    weightedf1 = f1_score(truth, predictions, average='weighted')
+    accuracy = accuracy_score(truth, predictions)
+    macro_gmean = geometric_mean_score(truth, predictions, average='macro')
+    weighted_gmean = geometric_mean_score(truth, predictions, average='weighted')
+    return np.array([accuracy, macrof1, weightedf1, macro_gmean, weighted_gmean])
+
 def catboost_trial(train_X, train_y, test_X, test_y, cat_features, seed):    
     classifier = CatBoostClassifier(loss_function='MultiClass',
                                     eval_metric='TotalF1',
@@ -26,16 +34,17 @@ def catboost_trial(train_X, train_y, test_X, test_y, cat_features, seed):
     )
 
     predictions = classifier.predict(test_X)
-    macrof1 = f1_score(test_y, predictions, average='macro')
-    weightedf1 = f1_score(test_y, predictions, average='weighted')
-    accuracy = accuracy_score(test_y, predictions)
-    macro_gmean = geometric_mean_score(test_y, predictions, average='macro')
-    weighted_gmean = geometric_mean_score(test_y, predictions, average='weighted')
-    return np.array([accuracy, macrof1, weightedf1, macro_gmean, weighted_gmean])
+    results = classifier_metrics(test_y, predictions)
+    return results
 
-def compute_catboost_utility(model, frame, target_name, names, dtypes, encoder_list, label_idx, train_size, test_size, num_exp, num_trials):
-    names, dtypes, num_ft = np.array(names), np.array(dtypes), len(names)
+def preprocess_for_ensemble(frame, reference_frame, encoder_list):
+
+def ensemble_utility(syn, train, test, reference_frame, encoder_list):
     
+        
+    
+
+def syn_train_test(model, frame, target_name, encoder_list, train_size, test_size, num_syn):
     not_missing = (frame != -1).all(axis=1)
     clean_frame = frame[not_missing]
     
@@ -48,23 +57,39 @@ def compute_catboost_utility(model, frame, target_name, names, dtypes, encoder_l
     gen_in[:, label_idx] = condition_vectors
     gen_in = gen_in.to(device)
     
+    synthetic_frames = []
+    for i in range(num_syn):
+        gen_in_hat = torch.clone(gen_in)
+        synthetics = model.gen_data(gen_in_hat, batch_size=512)
+        synthetics = decode_output(synthetics, encoder_list)
+        synthetic_frames.apend(synthetics)
+    
     clean_frame = decode_output(clean_frame, encoder_list)
     real_train_frame, real_test_frame = clean_frame.iloc[real_train_idx], clean_frame.iloc[real_test_idx]
-    real_train_y, real_test_y = real_train_frame[target_name], real_test_frame[target_name]
-    real_train_X, real_test_X = real_train_frame.drop(names[label_idx], axis=1), real_test_frame.drop(names[label_idx], axis=1)
+    return synthetic_frames, real_train_frame, real_test_frame
+
+def compute_catboost_utility(model, frame, target_name, names, dtypes, encoder_list, label_idx, train_size, test_size, num_exp, num_trials):
+    names, dtypes, num_ft = np.array(names), np.array(dtypes), len(names)
+    
+    synthetics, real_train, real_test = syn_train_test(model=model,
+                                                       frame=frame, 
+                                                       target_name=target_name, 
+                                                       encoder_list=encoder_list, 
+                                                       train_size=train_size, 
+                                                       test_size=test_size, 
+                                                       num_syn=num_exp)
+    
+    real_train_y, real_test_y = real_train[target_name], real_test[target_name]
+    real_train_X, real_test_X = real_train.drop(names[label_idx], axis=1), real_test.drop(names[label_idx], axis=1)
     
     labels = names[label_idx]
     cat_features = np.where((dtypes=='binary') | (dtypes=='nominal'))[0]
     cat_features = list(set(cat_features) - set(label_idx))
     
     seeds, avg_results = torch.randint(high=1000000, size=(num_trials,)), []
-    for exp in range(num_exp):
-        gen_in_hat = torch.clone(gen_in)
-        synthetics = model.gen_data(gen_in_hat, batch_size=512)
-        synthetics = decode_output(synthetics, encoder_list)
-        
-        syn_y = synthetics[target_name]
-        syn_X = synthetics.drop(names[label_idx], axis=1)
+    for exp, syn in enumerate(synthetics):        
+        syn_y = syn[target_name]
+        syn_X = syn.drop(names[label_idx], axis=1)
     
         trial_results = []
         for trial in range(num_trials):
@@ -86,3 +111,16 @@ def compute_catboost_utility(model, frame, target_name, names, dtypes, encoder_l
     means = np.mean(avg_results, axis=0)
     stds = np.std(avg_results, axis=0)
     return means, stds
+
+def create_weak_ensemble():
+    LogReg = LogisticRegression(random_state=42,max_iter=500) 
+    SVM = svm.SVC(random_state=42,probability=True)
+    DT = tree.DecisionTreeClassifier(random_state=42)
+    RF = RandomForestClassifier(random_state=42)
+    MLP = MLPClassifier(random_state=42,max_iter=100)
+    LinReg = LinearRegression()
+    R = Ridge(random_state=42)
+    L = Lasso(random_state=42)
+    BR = BayesianRidge()
+    return [LogReg, SVM, DT, RF, MLP, LinReg, R, L, BR]
+

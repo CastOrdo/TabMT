@@ -24,7 +24,7 @@ train_size = utility_train_size = utility_test_size = 50000
 
 model = None
 
-def set_seed():
+def reset_seed():
     np.random.seed(0)
     torch.manual_seed(0)
     random.seed(0)
@@ -32,8 +32,7 @@ def set_seed():
 
 def objective(trial):
     global model
-
-    set_seed()
+    reset_seed()
     
     n_clusters = trial.suggest_int('n_clusters', low=10, high=200, step=10)
     width = trial.suggest_int('width', low=16, high=512, step=16)
@@ -52,16 +51,14 @@ def objective(trial):
                         dropped_columns=dropped_columns,
                         labels=labels,
                         n_clusters=n_clusters)
-
-    encoder_list = dataset.get_encoder_list()
-    tu = [1 for i in range(len(encoder_list))]
+    
+    meta = dataset.get_meta()
 
     model = TabMT(width=width, 
                   depth=depth, 
                   heads=heads, 
-                  encoder_list=encoder_list,
-                  dropout=dropout, 
-                  tu=tu)
+                  encoder_list=meta['encoder_list'],
+                  dropout=dropout)
     
     savename = strftime("%Y-%m-%d_%H-%M-%S")
     model = fit(model=model, 
