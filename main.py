@@ -1,7 +1,7 @@
-from modules.dataset import UNSW_NB15
-from modules.model import TabMT
+from modules.dataset import UNSW_NB15, stratified_sample
+from modules.model import TabMT, generate_data
 from modules.train import fit
-from modules.evaluation import compute_catboost_utility
+from modules.evaluation_attempt import catboost_utility
 import numpy as np
 import torch
 import random
@@ -10,6 +10,8 @@ import wandb
 np.random.seed(0)
 torch.manual_seed(0)
 random.seed(0)
+
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 from argparse import ArgumentParser
 parser = ArgumentParser()
@@ -37,7 +39,7 @@ data_csv = ['data/UNSW_NB_15_1_withCVSS_V2.csv',
             'data/UNSW_NB_15_3_withCVSS_V2.csv',
             'data/UNSW_NB_15_4_withCVSS_V2.csv']
 dtype_xlsx = 'data/NUSW-NB15_features.xlsx'
-dropped_columns = ['label', 'dsport', 'sport']
+dropped_columns = ['label']
 labels = ['cvss', 'attack_cat']
 
 dataset = UNSW_NB15(data_csv=data_csv, 
@@ -46,15 +48,13 @@ dataset = UNSW_NB15(data_csv=data_csv,
                     labels=labels,
                     n_clusters=args.num_clusters)
 
-encoder_list = dataset.get_encoder_list()
-tu = [1 for i in range(len(encoder_list))]
+meta = dataset.get_meta()
 
 model = TabMT(width=args.width, 
               depth=args.depth, 
               heads=args.heads, 
-              encoder_list=encoder_list,
-              dropout=args.dropout, 
-              tu=tu)
+              encoder_list=meta['encoder_list'],
+              dropout=args.dropout)
 
 if args.save_to_wandb:
     wandb.login()
@@ -69,24 +69,22 @@ model = fit(model=model,
             epochs=args.epochs, 
             batch_size=args.batch_size, 
             weight_decay=args.weight_decay,
+            device=device,
             save_to_wandb=args.save_to_wandb, 
             savename=args.savename)
 
 print('Starting Evaluation!')
 
 model.eval()
-num_exp, trials_per_exp = 2, 2
-means, stds = compute_catboost_utility(model=model, 
-                                       frame=dataset.get_frame(), 
-                                       target_name='cvss', 
-                                       names=dataset.names, 
-                                       dtypes=dataset.dtypes, 
-                                       encoder_list=encoder_list, 
-                                       label_idx=dataset.label_idx, 
+means, stds = compute_catboost_utility(frame=meta['raw_frame'].dropna(), 
                                        train_size=utility_train_size, 
-                                       test_size=utility_test_size,
-                                       num_trials=trials_per_exp, 
-                                       num_exp=num_exp)
+                                       test_size=utility_test_size, 
+                                       target='cvss', 
+                                       labels=labels, 
+                                       dtypes=meta['dtypes'], 
+                                       device=device, 
+                                       num_exp=5, 
+                                       num_trials=5)
 
 results = {"mean_accuracy_diff": means[0],
            "mean_macroF1_diff":means[1],

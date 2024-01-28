@@ -13,29 +13,6 @@ import datetime as dt
 standard_norm = Normal(0, 0.05)
 position_norm = Normal(0, 0.01)
 
-def generate_data(model, class_columns, all_encoders, label_idx, num_frames, device):
-    rows, num_labels = len(class_columns), len(label_idx)
-    condition_vectors = np.empty((rows, num_labels), dtype=int)
-    
-    for i, ft in enumerate(label_idx):
-        condition_vectors[:, i] = all_encoders[ft].transform(class_columns.iloc[:, i])
-   
-    num_col = len(all_encoders)
-    gen_in = torch.ones((rows, num_col), dtype=int) * -1
-    gen_in[:, label_idx] = torch.from_numpy(condition_vectors)
-    
-    synthetic_frames = []
-    model = model.to(device)
-    for i in range(num_frames):
-        gen_in_hat = torch.clone(gen_in)
-        gen_in_hat = gen_in_hat.to(device)
-        
-        synthetic = model.gen_data(gen_in_hat, batch_size=512)
-        synthetic = decode_output(synthetic, all_encoders)
-        
-        synthetic_frames.append(synthetic)
-    return synthetic_frames
-
 class OrderedEmbedding(nn.Module):
     def __init__(self, occ, width):
         super(OrderedEmbedding, self).__init__()
@@ -84,6 +61,7 @@ class TabMT(nn.Module):
         self.depth = depth
         self.heads = heads
         self.dropout = dropout
+        self.encoder_list = encoder_list
         self.num_ft = len(encoder_list)
         self.tu = tu if tu != None else [1 for i in range(self.num_ft)]
 
@@ -126,7 +104,7 @@ class TabMT(nn.Module):
         y = self.linear(y)
         return y
     
-    def gen_data(self, x, batch_size):
+    def gen(self, x, batch_size):
         for row in tqdm(torch.split(x, batch_size, dim=0), desc='Generating Data'):
             for i in torch.randperm(self.num_ft):
                 mask = torch.zeros(row.size(), device=x.device)
@@ -141,3 +119,25 @@ class TabMT(nn.Module):
                 predictions = torch.multinomial(logits, num_samples=1)
                 row[missing, i] = torch.squeeze(predictions)
         return x
+
+    def generate_data(self, label_vectors, label_idx, num_frames, device):
+        for i, ft in enumerate(label_idx):
+            enc = self.encoder_list[ft]
+            label_vectors[:, i] = enc.transform(label_vectors[:, i])
+
+        rows, columns = len(label_vectors), len(self.encoder_list)
+        gen_in = torch.ones((rows, columns), dtype=int) * -1
+        gen_in[:, label_idx] = torch.from_numpy(label_vectors)
+    
+        synthetic_frames = []
+        for i in range(num_frames):
+            gen_in_hat = torch.clone(gen_in)
+            gen_in_hat = gen_in_hat.to(device)
+            
+            synthetic = self.gen(gen_in_hat, batch_size=512)
+            synthetic = decode_output(synthetic, self.encoder_list)
+            
+            synthetic_frames.append(synthetic)
+        
+        return synthetic_frames
+    

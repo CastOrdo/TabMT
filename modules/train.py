@@ -14,8 +14,6 @@ import wandb
 import tqdm
 import math
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
 g = torch.Generator()
 g.manual_seed(42)
 
@@ -24,7 +22,7 @@ def seed_worker(worker_id):
     numpy.random.seed(worker_seed)
     random.seed(worker_seed)
 
-def train(dataloader, model):
+def train(dataloader, model, device):
     total_loss = total_correct = item_count = 0
     for batch in dataloader:
         rows, mask = batch
@@ -62,6 +60,7 @@ def fit(model,
         epochs, 
         batch_size, 
         weight_decay,
+        device,
         savename, 
         save_to_wandb=0):
     
@@ -89,7 +88,7 @@ def fit(model,
 
     with tqdm.tqdm(range(epochs), desc='Training', unit="epoch") as tepoch:
         for epoch in tepoch:
-            t_loss, t_accuracy = train(train_loader, model)
+            t_loss, t_accuracy = train(train_loader, model, device)
         
             if t_loss < lowest_loss:
                 lowest_loss = t_loss

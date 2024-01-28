@@ -1,32 +1,31 @@
 import torch
 import numpy as np
-from sklearn.metrics import f1_score, accuracy_score
-from sklearn.model_selection import train_test_split
+import pandas as pd
+
 from sklearn.preprocessing import MinMaxScaler
+
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.neural_network import MLPClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn import svm, tree
+from sklearn.ensemble import RandomForestClassifier
+
+from sklearn.metrics import f1_score, accuracy_score
+from imblearn.metrics import geometric_mean_score
 
 from catboost import CatBoostClassifier
 from catboost.metrics import F1
+
 from modules.dataset import decode_output, stratified_sample
-
-from imblearn.metrics import geometric_mean_score
-
-from sklearn.neural_network import MLPClassifier
-from sklearn.linear_model import LogisticRegression, LinearRegression, Ridge, Lasso, BayesianRidge
-from sklearn import svm,tree
-from sklearn.ensemble import RandomForestClassifier
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-<<<<<<< HEAD
-def classifier_metrics(truth, predictions):
-=======
-def classifier_metrics(predictions, truth):
->>>>>>> dc60bd456361d86c60114c1d2115e17db0a0287f
-    macrof1 = f1_score(truth, predictions, average='macro')
-    weightedf1 = f1_score(truth, predictions, average='weighted')
-    accuracy = accuracy_score(truth, predictions)
-    macro_gmean = geometric_mean_score(truth, predictions, average='macro')
-    weighted_gmean = geometric_mean_score(truth, predictions, average='weighted')
+def classifier_metrics(predictions, truths):
+    macrof1 = f1_score(truths, predictions, average='macro')
+    weightedf1 = f1_score(truths, predictions, average='weighted')
+    accuracy = accuracy_score(truths, predictions)
+    macro_gmean = geometric_mean_score(truths, predictions, average='macro')
+    weighted_gmean = geometric_mean_score(truths, predictions, average='weighted')
     return np.array([accuracy, macrof1, weightedf1, macro_gmean, weighted_gmean])
 
 def catboost_trial(train_X, train_y, test_X, test_y, cat_features, seed):    
@@ -43,169 +42,120 @@ def catboost_trial(train_X, train_y, test_X, test_y, cat_features, seed):
     )
 
     predictions = classifier.predict(test_X)
-<<<<<<< HEAD
-    results = classifier_metrics(test_y, predictions)
+    results = classifier_metrics(predictions, test_y)
     return results
 
-def preprocess_for_ensemble(frame, reference_frame, encoder_list):
-
-def ensemble_utility(syn, train, test, reference_frame, encoder_list):
-=======
-    metrics = classifier_metrics(predictions, test_y)
-    return metrics
-
-def catboost_utility(syn_X, syn_y, real_train_X, real_train_y, real_test_X, real_test_y, num_trials, cat_features, seeds):
-    trial_results = []
-    for trial in range(num_trials):
-        seed = int(seeds[trial])
-        real_results = catboost_trial(real_train_X, real_train_y, 
-                                      real_test_X, real_test_y, 
-                                      cat_features, seed)
-        fake_results = catboost_trial(syn_X, syn_y, 
-                                      real_test_X, real_test_y, 
-                                      cat_features, seed)
-        trial_results.append(real_results - fake_results)
-        
-    trial_results = np.stack(trial_results)
-    trial_results = np.mean(trial_results, axis=0)
-    return trial_results
-
-def create_weak_ensemble():
-    LogReg = LogisticRegression(random_state=42,max_iter=500) 
-    SVM = svm.SVC(random_state=42,probability=True)
-    DT = tree.DecisionTreeClassifier(random_state=42)
-    RF = RandomForestClassifier(random_state=42)
-    MLP = MLPClassifier(random_state=42,max_iter=100)
-    LinReg = LinearRegression()
-    R = Ridge(random_state=42)
-    L = Lasso(random_state=42)
-    BR = BayesianRidge()
-    return [LogReg, SVM, DT, RF, MLP, LinReg, R, L, BR]
-
-def preprocess_frame(subset_frame, full_frame, encoder_list):
-    subset_frame = subset_frame.copy()
+def catboost_utility(synthetics, real_train, real_test, target, labels, cat_features, trials_per_syn):
+    real_train_y, real_test_y = real_train[target], real_test[target]
+    real_train_X, real_test_X = real_train.drop(labels, axis=1), real_test.drop(labels, axis=1)
     
-    fts = np.where(subset_frame.columns == full_frame.columns)[0]
-    for ft in fts:
-        dtype = encoder_list[ft].type_
-        
-        if (dtype == 'continuous'):
-            encoder = MinMaxScaler()
-            encoder.fit(full_frame.iloc[:, ft])
-        else:
-            encoder = encoder_list[ft].le
-
-        subset_frame.iloc[:, ft] = encoder.transform(subset_frame.iloc[:, ft])
-    return subset_frame
-
-def weak_ensemble_utility(syn_X, syn_y, real_train_X, real_train_y, real_test_X, real_test_y, frame, encoder_list):
-    models_real, models_syn = create_weak_ensemble(), create_weak_ensemble()
+    seeds = torch.randint(high=100000, size=(trials_per_syn,))
     
-    syn_X, syn_y = preprocess_for_ensemble(syn_X, frame, encoder_list), preprocess_for_ensemble(syn_y, frame, encoder_list)
-    real_train_X, real_train_y = preprocess_for_ensemble(real_train_X, frame, encoder_list), preprocess_for_ensemble(real_train_y, frame, encoder_list)
-    real_test_X, real_test_y = preprocess_for_ensemble(real_test_X, frame, encoder_list), preprocess_for_ensemble(real_test_y, frame, encoder_list)
-
     results = []
-    for i in range(len(models_real)):
-        models_real[i].fit(real_train_X, real_train_y)
-        predictions = models_real[i].predict(real_test_X)
-        real_results = classifier_metrics(predictions, real_test_y)
-
-        models_syn[i].fit(syn_X, syn_y)
-        predictions = models_syn[i].predict(real_test_X)
-        fake_results = classifier_metrics(predictions, real_test_y)
+    for synthetic in synthetics:
+        syn_y = synthetic[target]
+        syn_X = synthetic.drop(labels, axis=1)
         
+        batch_results = []
+        for trial in range(trials_per_syn):
+            seed = int(seeds[trial])
+            
+            real_results = catboost_trial(real_train_X, real_train_y, 
+                                          real_test_X, real_test_y, 
+                                          cat_features, seed)
+            fake_results = catboost_trial(syn_X, syn_y, 
+                                          real_test_X, real_test_y, 
+                                          cat_features, seed)
+            batch_results.append(real_results - fake_results)
+        
+        batch_results = np.stack(batch_results)
+        batch_results = np.mean(batch_results, axis=0)
+        results.append(batch_results)
+        
+    results = np.stack(results)
+    means = np.mean(results, axis=0)
+    std = np.std(results, axis=0)
+    return means, std
+
+def compute_catboost_utility(model, frame, train_size, test_size, target, labels, dtypes, device, num_exp, num_trials):
+    model.to(device)
+    
+    train_idx, test_idx = stratified_sample(y=frame[target], lengths=[train_size, test_size])
+    train_frame, test_frame = frame.iloc[train_idx], frame.iloc[test_idx]
+
+    label_idx = [i for i, n in enumerate(labels) if n in frame.columns]
+    label_vectors = np.array(train_frame.loc[:, labels], dtype=int)
+    synthetic_frames = model.generate_data(label_vectors, label_idx, num_exp, device)
+
+    cat_features = [i for i, n in enumerate(dtypes) if (n == 'nominal') | (n == 'binary')]
+    cat_features = list(set(cat_features) - set(label_idx))
+    means, stds = catboost_utility(synthetic_frames, train_frame, test_frame, target, labels, cat_features, num_trials)
+    return means, stds
+
+class Ensemble(object):
+    def __init__(self):
+        LogReg = LogisticRegression(random_state=42,max_iter=500) 
+        SVM = svm.SVC(random_state=42,probability=True)
+        DT = tree.DecisionTreeClassifier(random_state=42)
+        RF = RandomForestClassifier(random_state=42)
+        MLP = MLPClassifier(random_state=42,max_iter=100)
+        
+        self.models = [LogReg, SVM, DT, RF, MLP]
+    
+    def fit_eval(self, X_train, y_train, X_test, y_test):
+        results = []
+        for model in self.models:
+            model.fit(X_train, y_train)
+            predictions = model.predict(X_test)
+            predictions = np.array(predictions, dtype=int)
+            
+            metrics = classifier_metrics(predictions, y_test)
+            results.append(metrics)
+        
+        results = np.concatenate(results)
+        return results
+
+def cat_to_int(frame, cat_features, encoder_list):
+    frame = frame.copy()
+    for ft in cat_features:
+        frame.iloc[:, ft] = encoder_list[ft].transform(frame.iloc[:, ft])
+    return frame
+    
+def minmax_preprocessing(frame):
+    scaler = MinMaxScaler()
+    scaler.fit(frame)
+    return scaler.transform(frame)
+    
+def ensemble_utility(synthetics, real_train, real_test, full_real_frame, target, labels, cat_features, encoder_list):
+    all_frame = pd.concat([real_train, real_test], axis=0)
+    all_frame = cat_to_int(all_frame, cat_features, encoder_list)
+    
+    all_y = np.array(all_frame[target], dtype=int)
+    real_train_y = all_y[:len(real_train)]
+    real_test_y = all_y[len(real_train):]
+    
+    all_X = all_frame.drop(labels, axis=1)
+    all_X = minmax_preprocessing(all_X)
+    real_train_X = all_X[:len(real_train)]
+    real_test_X = all_X[len(real_train):]
+    
+    real_ensemble = Ensemble()
+    real_results = real_ensemble.fit_eval(real_train_X, real_train_y, 
+                                          real_test_X, real_test_y)
+    
+    results = []
+    for synthetic in synthetics:
+        synthetic = cat_to_int(synthetic, cat_features, encoder_list)
+        syn_y = np.array(synthetic[target], dtype=int)
+        syn_X = synthetic.drop(labels, axis=1)
+        syn_X = minmax_preprocessing(syn_X)
+    
+        fake_ensemble = Ensemble()
+        fake_results = fake_ensemble.fit_eval(syn_X, syn_y, 
+                                              real_test_X, real_test_y)
         results.append(real_results - fake_results)
     
     results = np.stack(results)
-    return results
-
-def compute_utility(model, frame, target_name, names, dtypes, encoder_list, label_idx, train_size, test_size, num_exp, num_trials, weak_ensemble=False):
-    names, dtypes, num_ft = np.array(names), np.array(dtypes), len(names)
->>>>>>> dc60bd456361d86c60114c1d2115e17db0a0287f
-    
-        
-    
-
-def syn_train_test(model, frame, target_name, encoder_list, train_size, test_size, num_syn):
-    not_missing = (frame != -1).all(axis=1)
-    clean_frame = frame[not_missing]
-    
-    real_train_idx, real_test_idx = stratified_sample(y=clean_frame[target_name], lengths=[train_size, test_size])
-    
-    condition_vectors = np.array(clean_frame.iloc[real_train_idx, label_idx], dtype=int)
-    condition_vectors = torch.from_numpy(condition_vectors)
-    
-    gen_in = torch.ones((len(real_train_idx), num_ft), dtype=int) * -1
-    gen_in[:, label_idx] = condition_vectors
-    gen_in = gen_in.to(device)
-    
-    synthetic_frames = []
-    for i in range(num_syn):
-        gen_in_hat = torch.clone(gen_in)
-        synthetics = model.gen_data(gen_in_hat, batch_size=512)
-        synthetics = decode_output(synthetics, encoder_list)
-        synthetic_frames.apend(synthetics)
-    
-    clean_frame = decode_output(clean_frame, encoder_list)
-    real_train_frame, real_test_frame = clean_frame.iloc[real_train_idx], clean_frame.iloc[real_test_idx]
-    return synthetic_frames, real_train_frame, real_test_frame
-
-def compute_catboost_utility(model, frame, target_name, names, dtypes, encoder_list, label_idx, train_size, test_size, num_exp, num_trials):
-    names, dtypes, num_ft = np.array(names), np.array(dtypes), len(names)
-    
-    synthetics, real_train, real_test = syn_train_test(model=model,
-                                                       frame=frame, 
-                                                       target_name=target_name, 
-                                                       encoder_list=encoder_list, 
-                                                       train_size=train_size, 
-                                                       test_size=test_size, 
-                                                       num_syn=num_exp)
-    
-    real_train_y, real_test_y = real_train[target_name], real_test[target_name]
-    real_train_X, real_test_X = real_train.drop(names[label_idx], axis=1), real_test.drop(names[label_idx], axis=1)
-    
-    labels = names[label_idx]
-    cat_features = np.where((dtypes=='binary') | (dtypes=='nominal'))[0]
-    cat_features = list(set(cat_features) - set(label_idx))
-    
-    seeds, avg_results = torch.randint(high=1000000, size=(num_trials,)), []
-    for exp, syn in enumerate(synthetics):        
-        syn_y = syn[target_name]
-        syn_X = syn.drop(names[label_idx], axis=1)
-    
-        cat_util = catboost_utility(syn_X, syn_y, 
-                                    real_train_X, real_train_y, 
-                                    real_test_X, real_test_y, 
-                                    num_trials, 
-                                    cat_features, 
-                                    seeds)
-        print(cat_util)
-
-        if weak_ensemble:
-            ensemble_util = weak_ensemble_utility(syn_X, syn_y, 
-                                                  real_train_X, real_train_y, 
-                                                  real_test_X, real_test_y, 
-                                                  frame, encoder_list)
-            print(ensemble_util)
-        
-        results = np.concatenate((cat_util, ensemble_util), axis=0) if weak_ensemble else cat_util
-        avg_results.append(results)
-    
-    avg_results = np.stack(avg_results)
-    means = np.mean(avg_results, axis=0)
-    stds = np.std(avg_results, axis=0)
+    means = np.mean(results, axis=0)
+    stds = np.std(results, axis=0)
     return means, stds
-
-def create_weak_ensemble():
-    LogReg = LogisticRegression(random_state=42,max_iter=500) 
-    SVM = svm.SVC(random_state=42,probability=True)
-    DT = tree.DecisionTreeClassifier(random_state=42)
-    RF = RandomForestClassifier(random_state=42)
-    MLP = MLPClassifier(random_state=42,max_iter=100)
-    LinReg = LinearRegression()
-    R = Ridge(random_state=42)
-    L = Lasso(random_state=42)
-    BR = BayesianRidge()
-    return [LogReg, SVM, DT, RF, MLP, LinReg, R, L, BR]
-

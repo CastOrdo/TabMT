@@ -1,7 +1,8 @@
-from modules.dataset import UNSW_NB15
-from modules.model import TabMT
+from modules.dataset import UNSW_NB15, stratified_sample
+from modules.model import TabMT, generate_data
 from modules.train import fit
 from modules.evaluation import compute_catboost_utility
+
 import random
 import torch
 import numpy as np
@@ -12,13 +13,15 @@ from time import strftime
 import warnings
 warnings.filterwarnings("ignore")
 
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
 data_csv = ['data/UNSW_NB_15_1_withCVSS_V2.csv', 
             'data/UNSW_NB_15_2_withCVSS_V2.csv',
             'data/UNSW_NB_15_3_withCVSS_V2.csv',
             'data/UNSW_NB_15_4_withCVSS_V2.csv']
 dtype_xlsx = 'data/NUSW-NB15_features.xlsx'
-dropped_columns = ['label', 'dsport', 'sport']
-labels = ['cvss', 'attack_cat']
+dropped_columns = ['label']
+labels = ['attack_cat', 'cvss']
 
 train_size = utility_train_size = utility_test_size = 50000
 
@@ -70,21 +73,19 @@ def objective(trial):
                 epochs=epochs, 
                 batch_size=batch_size, 
                 weight_decay=weight_decay,
+                device=device,
                 savename=savename)
 
     model.eval()
-    num_exp, trials_per_exp = 5, 5
-    means, stds = compute_catboost_utility(model=model, 
-                                           frame=dataset.get_frame(), 
-                                           target_name='cvss', 
-                                           names=dataset.names, 
-                                           dtypes=dataset.dtypes, 
-                                           encoder_list=encoder_list, 
-                                           label_idx=dataset.label_idx, 
+    means, stds = compute_catboost_utility(frame=meta['raw_frame'].dropna(), 
                                            train_size=utility_train_size, 
-                                           test_size=utility_test_size,
-                                           num_trials=trials_per_exp, 
-                                           num_exp=num_exp)
+                                           test_size=utility_test_size, 
+                                           target='cvss', 
+                                           labels=labels, 
+                                           dtypes=meta['dtypes'], 
+                                           device=device, 
+                                           num_exp=5, 
+                                           num_trials=5)
     return means[1]
 
 save_path = 'saved_models/optimized'

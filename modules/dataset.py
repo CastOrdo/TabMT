@@ -40,7 +40,7 @@ class CategoricalLabelEncoder(object):
     def transform(self, x):
         y = self.le.transform(x)
         return y.astype('int')
-    
+
 def decode_output(x, encoder_list):
     x = x.detach().cpu().numpy() if torch.is_tensor(x) else x
     
