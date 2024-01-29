@@ -8,8 +8,6 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 
 from modules.dataset import stratified_sample
 
-from modules.evaluation import compute_catboost_utility
-
 import wandb
 import tqdm
 import math
@@ -66,7 +64,9 @@ def fit(model,
     
     global optimizer, scheduler, criterion, epoch
     
-    frame = dataset.get_frame()
+    meta = dataset.get_meta()
+    frame = meta['processed_frame']
+    
     train_idx = stratified_sample(y=frame[target], lengths=[train_size])[0]
     train_loader = DataLoader(Subset(dataset, train_idx), 
                               batch_size=batch_size, 

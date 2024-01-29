@@ -120,12 +120,13 @@ class TabMT(nn.Module):
                 row[missing, i] = torch.squeeze(predictions)
         return x
 
-    def generate_data(self, label_vectors, label_idx, num_frames, device):
+    def generate_data(self, labels, label_idx, num_frames, device):
+        label_vectors = np.empty((len(labels), len(label_idx)), dtype=int)        
         for i, ft in enumerate(label_idx):
             enc = self.encoder_list[ft]
-            label_vectors[:, i] = enc.transform(label_vectors[:, i])
+            label_vectors[:, i] = enc.transform(labels.iloc[:, i])
 
-        rows, columns = len(label_vectors), len(self.encoder_list)
+        rows, columns = len(labels), len(self.encoder_list)
         gen_in = torch.ones((rows, columns), dtype=int) * -1
         gen_in[:, label_idx] = torch.from_numpy(label_vectors)
     

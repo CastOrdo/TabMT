@@ -1,7 +1,7 @@
 from modules.dataset import UNSW_NB15, stratified_sample
-from modules.model import TabMT, generate_data
+from modules.model import TabMT
 from modules.train import fit
-from modules.evaluation_attempt import catboost_utility
+from modules.evaluation import compute_catboost_utility
 import numpy as np
 import torch
 import random
@@ -12,6 +12,9 @@ torch.manual_seed(0)
 random.seed(0)
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+import warnings
+warnings.filterwarnings("ignore")
 
 from argparse import ArgumentParser
 parser = ArgumentParser()
@@ -40,7 +43,7 @@ data_csv = ['data/UNSW_NB_15_1_withCVSS_V2.csv',
             'data/UNSW_NB_15_4_withCVSS_V2.csv']
 dtype_xlsx = 'data/NUSW-NB15_features.xlsx'
 dropped_columns = ['label']
-labels = ['cvss', 'attack_cat']
+labels = ['attack_cat', 'cvss']
 
 dataset = UNSW_NB15(data_csv=data_csv, 
                     dtype_xlsx=dtype_xlsx, 
@@ -76,15 +79,18 @@ model = fit(model=model,
 print('Starting Evaluation!')
 
 model.eval()
-means, stds = compute_catboost_utility(frame=meta['raw_frame'].dropna(), 
+
+frame = meta['raw_frame'].dropna()
+means, stds = compute_catboost_utility(model=model,
+                                       frame=frame, 
                                        train_size=utility_train_size, 
                                        test_size=utility_test_size, 
                                        target='cvss', 
                                        labels=labels, 
                                        dtypes=meta['dtypes'], 
                                        device=device, 
-                                       num_exp=5, 
-                                       num_trials=5)
+                                       num_exp=2, 
+                                       num_trials=2)
 
 results = {"mean_accuracy_diff": means[0],
            "mean_macroF1_diff":means[1],

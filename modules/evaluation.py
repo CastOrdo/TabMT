@@ -83,9 +83,9 @@ def compute_catboost_utility(model, frame, train_size, test_size, target, labels
     train_idx, test_idx = stratified_sample(y=frame[target], lengths=[train_size, test_size])
     train_frame, test_frame = frame.iloc[train_idx], frame.iloc[test_idx]
 
-    label_idx = [i for i, n in enumerate(labels) if n in frame.columns]
-    label_vectors = np.array(train_frame.loc[:, labels], dtype=int)
-    synthetic_frames = model.generate_data(label_vectors, label_idx, num_exp, device)
+    label_idx = [i for i, n in enumerate(frame.columns) if n in labels]
+    labels = train_frame.iloc[:, label_idx]
+    synthetic_frames = model.generate_data(labels, label_idx, num_exp, device)
 
     cat_features = [i for i, n in enumerate(dtypes) if (n == 'nominal') | (n == 'binary')]
     cat_features = list(set(cat_features) - set(label_idx))

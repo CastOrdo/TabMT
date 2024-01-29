@@ -1,5 +1,5 @@
 from modules.dataset import UNSW_NB15, stratified_sample
-from modules.model import TabMT, generate_data
+from modules.model import TabMT
 from modules.train import fit
 from modules.evaluation import compute_catboost_utility
 

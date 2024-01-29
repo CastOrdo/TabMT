@@ -75,9 +75,9 @@ def cure_frame(frame, dtypes):
         category = dtypes[idx] == 'nominal' or dtypes[idx] == 'binary'
         if not category:
             frame.iloc[:, idx] = pd.to_numeric(frame.iloc[:, idx], errors='coerce')
-        # else:
-            # frame.iloc[:, idx] = frame.iloc[:, idx].str.strip()
-            # frame.iloc[:, idx] = frame.iloc[:, idx].str.lower()
+        else:
+            frame.iloc[:, idx] = frame.iloc[:, idx].str.strip()
+            frame.iloc[:, idx] = frame.iloc[:, idx].str.lower()
     return frame
 
 def process_data(frame, dtypes, names, n_clusters):
